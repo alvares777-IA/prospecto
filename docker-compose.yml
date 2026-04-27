@@ -183,6 +183,7 @@ services:
       DEL_INSTANCE: "false"
       # Força versão atual do protocolo WhatsApp Web (Baileys)
       WA_VERSION: "2,3000,1035194821"
+      NODE_OPTIONS: "--require /evolution/instances/patch-baileys.js"
     volumes:
       - evolution_data:/evolution/instances
     depends_on:
