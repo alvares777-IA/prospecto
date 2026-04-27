@@ -154,7 +154,7 @@ services:
   # Evolution API — interface com o WhatsApp
   # ─────────────────────────────────────────
   evolution-api:
-    image: atendai/evolution-api:latest
+    image: atendai/evolution-api:v2.2.12
     restart: unless-stopped
     ports:
       - "8080:8080"
