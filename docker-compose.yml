@@ -154,7 +154,7 @@ services:
   # Evolution API — interface com o WhatsApp
   # ─────────────────────────────────────────
   evolution-api:
-    image: atendai/evolution-api:v2.2.12
+    image: atendai/evolution-api:latest
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -181,6 +181,8 @@ services:
       QRCODE_LIMIT: 30
       # Instâncias
       DEL_INSTANCE: "false"
+      # Força versão atual do protocolo WhatsApp Web (Baileys)
+      WA_VERSION: "2,3000,1035194821"
     volumes:
       - evolution_data:/evolution/instances
     depends_on:
