@@ -1,6 +1,6 @@
 <div class="d-flex align-items-center mb-3">
   <a href="/usuarios" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
-  <h5 class="mb-0"><%= usuario ? 'Editar Usuário' : 'Novo Usuário' %></h5>
+  <h5 class="mb-0"><%= registro ? 'Editar Usuário' : 'Novo Usuário' %></h5>
 </div>
 
 <div class="card border-0 shadow-sm" style="max-width:480px">
@@ -9,26 +9,26 @@
     <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
     <% } %>
 
-    <form method="post" action="<%= usuario?.id ? '/usuarios/' + usuario.id + '/editar' : '/usuarios/novo' %>">
+    <form method="post" action="<%= registro?.id ? '/usuarios/' + registro.id + '/editar' : '/usuarios/novo' %>">
 
       <div class="mb-3">
         <label class="form-label fw-semibold">Nome <span class="text-danger">*</span></label>
         <input type="text" name="nome" class="form-control"
-               value="<%= usuario?.nome || '' %>" required>
+               value="<%= registro?.nome || '' %>" required>
       </div>
 
       <div class="mb-3">
         <label class="form-label fw-semibold">E-mail <span class="text-danger">*</span></label>
         <input type="email" name="email" class="form-control"
-               value="<%= usuario?.email || '' %>" required>
+               value="<%= registro?.email || '' %>" required>
       </div>
 
       <div class="mb-3">
         <label class="form-label fw-semibold">
-          <%= usuario ? 'Nova Senha (vazio = manter atual)' : 'Senha *' %>
+          <%= registro ? 'Nova Senha (vazio = manter atual)' : 'Senha *' %>
         </label>
         <input type="password" name="senha" class="form-control"
-               minlength="8" <%= usuario ? '' : 'required' %>
+               minlength="8" <%= registro ? '' : 'required' %>
                placeholder="Mínimo 8 caracteres">
       </div>
 
@@ -36,7 +36,7 @@
         <label class="form-label fw-semibold">Perfil <span class="text-danger">*</span></label>
         <select name="perfil" class="form-select" required>
           <% for (const p of PERFIS) { %>
-          <option value="<%= p %>" <%= (usuario?.perfil || '') === p ? 'selected' : '' %>>
+          <option value="<%= p %>" <%= (registro?.perfil || '') === p ? 'selected' : '' %>>
             <%= p.charAt(0).toUpperCase() + p.slice(1) %>
           </option>
           <% } %>
@@ -46,12 +46,12 @@
         </div>
       </div>
 
-      <% if (usuario) { %>
+      <% if (registro) { %>
       <div class="mb-4">
         <label class="form-label fw-semibold">Status</label>
         <select name="ativo" class="form-select">
-          <option value="true"  <%= usuario.ativo ? 'selected' : '' %>>Ativo</option>
-          <option value="false" <%= !usuario.ativo ? 'selected' : '' %>>Inativo</option>
+          <option value="true"  <%= registro.ativo ? 'selected' : '' %>>Ativo</option>
+          <option value="false" <%= !registro.ativo ? 'selected' : '' %>>Inativo</option>
         </select>
       </div>
       <% } %>

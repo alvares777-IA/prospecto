@@ -11,7 +11,7 @@ router.get('/', requireLogin, requirePerfil('admin'), async (req, res) => {
 });
 
 router.get('/novo', requireLogin, requirePerfil('admin'), (req, res) => {
-    res.render('usuarios/form', { title: 'Novo Usuário', page: 'usuarios', usuario: null, PERFIS, erro: null });
+    res.render('usuarios/form', { title: 'Novo Usuário', page: 'usuarios', registro: null, PERFIS, erro: null });
 });
 
 router.post('/novo', requireLogin, requirePerfil('admin'), async (req, res) => {
@@ -26,14 +26,14 @@ router.post('/novo', requireLogin, requirePerfil('admin'), async (req, res) => {
         res.redirect('/usuarios');
     } catch (err) {
         const erro = err.code === '23505' ? 'E-mail já cadastrado.' : 'Erro ao salvar.';
-        res.render('usuarios/form', { title: 'Novo Usuário', page: 'usuarios', usuario: req.body, PERFIS, erro });
+        res.render('usuarios/form', { title: 'Novo Usuário', page: 'usuarios', registro: req.body, PERFIS, erro });
     }
 });
 
 router.get('/:id/editar', requireLogin, requirePerfil('admin'), async (req, res) => {
     const { rows } = await pool.query('SELECT * FROM usuarios WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.redirect('/usuarios');
-    res.render('usuarios/form', { title: 'Editar Usuário', page: 'usuarios', usuario: rows[0], PERFIS, erro: null });
+    res.render('usuarios/form', { title: 'Editar Usuário', page: 'usuarios', registro: rows[0], PERFIS, erro: null });
 });
 
 router.post('/:id/editar', requireLogin, requirePerfil('admin'), async (req, res) => {
@@ -57,7 +57,7 @@ router.post('/:id/editar', requireLogin, requirePerfil('admin'), async (req, res
     } catch (err) {
         const { rows } = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
         const erro = err.code === '23505' ? 'E-mail já cadastrado.' : 'Erro ao salvar.';
-        res.render('usuarios/form', { title: 'Editar Usuário', page: 'usuarios', usuario: { ...rows[0], ...req.body }, PERFIS, erro });
+        res.render('usuarios/form', { title: 'Editar Usuário', page: 'usuarios', registro: { ...rows[0], ...req.body }, PERFIS, erro });
     }
 });
 
