@@ -121,6 +121,7 @@ services:
       NEXTAUTH_URL: https://${TYPEBOT_VIEWER_HOST}
       NEXTAUTH_SECRET: ${TYPEBOT_SECRET}
       ENCRYPTION_SECRET: ${TYPEBOT_ENCRYPTION_SECRET}
+      NEXT_PUBLIC_VIEWER_URL: https://${TYPEBOT_VIEWER_HOST}
     depends_on:
       postgres:
         condition: service_healthy
