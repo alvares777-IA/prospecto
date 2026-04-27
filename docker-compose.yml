@@ -1,0 +1,169 @@
+version: '3.8'
+
+networks:
+  prospecto-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_data:
+  evolution_data:
+
+services:
+
+  # ─────────────────────────────────────────
+  # PostgreSQL — banco central de todos os serviços
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - prospecto-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # Redis — cache e fila da Evolution API
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - prospecto-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # n8n — orquestrador de workflows
+  # ─────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Banco de dados
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Servidor
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Timezone
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+      # Execuções (evita acúmulo de histórico no banco)
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prospecto-net
+
+  # ─────────────────────────────────────────
+  # Typebot Builder — editor visual de fluxos
+  # ─────────────────────────────────────────
+  typebot-builder:
+    image: baptistearno/typebot-builder:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${TYPEBOT_DB_NAME}
+      NEXTAUTH_URL: https://${TYPEBOT_BUILDER_HOST}
+      NEXTAUTH_SECRET: ${TYPEBOT_SECRET}
+      ENCRYPTION_SECRET: ${TYPEBOT_ENCRYPTION_SECRET}
+      ADMIN_EMAIL: ${TYPEBOT_ADMIN_EMAIL}
+      # URL pública do viewer (usada nos iframes gerados)
+      NEXT_PUBLIC_VIEWER_URL: https://${TYPEBOT_VIEWER_HOST}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prospecto-net
+
+  # ─────────────────────────────────────────
+  # Typebot Viewer — runtime público dos bots
+  # ─────────────────────────────────────────
+  typebot-viewer:
+    image: baptistearno/typebot-viewer:latest
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${TYPEBOT_DB_NAME}
+      NEXTAUTH_URL: https://${TYPEBOT_VIEWER_HOST}
+      NEXTAUTH_SECRET: ${TYPEBOT_SECRET}
+      ENCRYPTION_SECRET: ${TYPEBOT_ENCRYPTION_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prospecto-net
+
+  # ─────────────────────────────────────────
+  # Evolution API — interface com o WhatsApp
+  # ─────────────────────────────────────────
+  evolution-api:
+    image: atendai/evolution-api:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_URL: https://${EVOLUTION_HOST}
+      # Autenticação
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      # Banco de dados
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${EVOLUTION_DB_NAME}
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      # Redis
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      # QR Code
+      QRCODE_LIMIT: 30
+      # Instâncias
+      DEL_INSTANCE: "false"
+    volumes:
+      - evolution_data:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - prospecto-net

@@ -1,0 +1,10 @@
+# Segredos — nunca versionar com valores reais
+.env
+
+# Backups de configuração copiados do servidor
+*.conf.20*
+httpd.conf.*
+dads.conf.*
+
+# Claude Code
+.claude/
