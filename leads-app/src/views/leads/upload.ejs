@@ -1,0 +1,57 @@
+<div class="d-flex align-items-center mb-3">
+  <a href="/leads" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0">Upload de Leads</h5>
+</div>
+
+<div class="card border-0 shadow-sm" style="max-width:540px">
+  <div class="card-body p-4">
+
+    <% if (erro) { %>
+    <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
+    <% } %>
+
+    <% if (resultado) { %>
+    <div class="alert alert-success">
+      <h6 class="alert-heading mb-2"><i class="bi bi-check-circle me-2"></i>Importação concluída</h6>
+      <div class="row g-2 text-center">
+        <div class="col-6 col-sm-3">
+          <div class="fw-bold fs-5"><%= resultado.total %></div>
+          <div class="small text-muted">Total</div>
+        </div>
+        <div class="col-6 col-sm-3">
+          <div class="fw-bold fs-5 text-success"><%= resultado.inseridos %></div>
+          <div class="small text-muted">Inseridos</div>
+        </div>
+        <div class="col-6 col-sm-3">
+          <div class="fw-bold fs-5 text-warning"><%= resultado.duplicados %></div>
+          <div class="small text-muted">Duplicados</div>
+        </div>
+        <div class="col-6 col-sm-3">
+          <div class="fw-bold fs-5 text-danger"><%= resultado.erros %></div>
+          <div class="small text-muted">Erros</div>
+        </div>
+      </div>
+    </div>
+    <% } %>
+
+    <p class="text-muted small mb-1">
+      Aceita <strong>.csv</strong> e <strong>.xlsx</strong>. A primeira linha deve ser o cabeçalho.
+    </p>
+    <p class="text-muted small mb-3">
+      Colunas reconhecidas: <code>telefone</code>, <code>nome</code>, <code>empresa</code>,
+      <code>cargo</code>, <code>email</code>, <code>origem</code>, <code>observacoes</code>
+      <br>Variações aceitas: <code>celular</code>, <code>whatsapp</code>, <code>fone</code>, etc.
+    </p>
+
+    <form method="post" action="/leads/upload" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Arquivo</label>
+        <input type="file" name="arquivo" class="form-control" accept=".csv,.xlsx,.xls" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">
+        <i class="bi bi-cloud-upload me-2"></i>Importar
+      </button>
+    </form>
+
+  </div>
+</div>

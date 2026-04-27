@@ -1,0 +1,46 @@
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h5 class="mb-0">Usuários</h5>
+  <a href="/usuarios/novo" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Novo</a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Nome</th>
+          <th class="d-none d-md-table-cell">E-mail</th>
+          <th>Perfil</th>
+          <th>Status</th>
+          <th class="text-end pe-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% for (const u of usuarios) { %>
+        <tr>
+          <td>
+            <%= u.nome %>
+            <div class="d-md-none text-muted small"><%= u.email %></div>
+          </td>
+          <td class="d-none d-md-table-cell text-muted small"><%= u.email %></td>
+          <td>
+            <span class="badge bg-secondary" style="text-transform:uppercase;font-size:.7rem"><%= u.perfil %></span>
+          </td>
+          <td>
+            <% if (u.ativo) { %>
+            <span class="badge bg-success">Ativo</span>
+            <% } else { %>
+            <span class="badge bg-danger">Inativo</span>
+            <% } %>
+          </td>
+          <td class="text-end pe-3">
+            <a href="/usuarios/<%= u.id %>/editar" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-pencil"></i>
+            </a>
+          </td>
+        </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>

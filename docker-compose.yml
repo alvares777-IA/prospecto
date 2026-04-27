@@ -131,6 +131,28 @@ services:
   # ─────────────────────────────────────────
   # Evolution API — interface com o WhatsApp
   # ─────────────────────────────────────────
+  # ─────────────────────────────────────────
+  # Leads App — interface web de gestão
+  # ─────────────────────────────────────────
+  leads-app:
+    build: ./leads-app
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${LEADS_DB_NAME}
+      SESSION_SECRET: ${SESSION_SECRET}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prospecto-net
+
+  # ─────────────────────────────────────────
+  # Evolution API — interface com o WhatsApp
+  # ─────────────────────────────────────────
   evolution-api:
     image: atendai/evolution-api:latest
     restart: unless-stopped

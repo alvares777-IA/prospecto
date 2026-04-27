@@ -1,5 +1,5 @@
 # Status do Projeto — Prospecto-IA
-**Última atualização:** 2026-04-24
+**Última atualização:** 2026-04-27
 
 ---
 
@@ -26,37 +26,16 @@
 
 ## O que está pendente
 
-### 1. Técnico de infraestrutura — BLOQUEADOR
-O proxy OpenResty em `192.168.210.8` precisa ser configurado para rotear
-os 4 novos subdomínios até o Apache em `192.168.210.7`.
-Documento completo para o técnico: `infra-openresty-solicitacao.md`
+### 1. ~~Técnico de infraestrutura — BLOQUEADOR~~ ✅ CONCLUÍDO 2026-04-27
+Nginx Proxy Manager (container `ngix-app-1` em `192.168.210.8`) configurado via API.
+4 proxy hosts criados, certificado LE #65 emitido cobrindo todos os subdomínios.
 
-Validação após configuração do técnico:
-```bash
-curl -I https://n8n.prospect.rssc.com.br
-# Esperado: qualquer resposta que NÃO seja "404 openresty"
-# 502 Bad Gateway do Apache é OK (containers ainda não sobem)
-```
+### 2. ~~Subir os containers Docker~~ ✅ CONCLUÍDO 2026-04-27
+Stack completa rodando em `/home/producao/prospecto/` no servidor `192.168.210.7`.
+Todos os serviços respondendo em HTTPS.
 
-### 2. Subir os containers Docker
-Após o OpenResty estar configurado:
-```bash
-cd /caminho/do/projeto
-# Preencher o .env com senhas reais antes
-docker compose up -d
-docker compose logs -f --tail=50
-```
-Gerar as chaves secretas antes:
-```bash
-echo "N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)"
-echo "TYPEBOT_SECRET=$(openssl rand -hex 32)"
-echo "TYPEBOT_ENCRYPTION_SECRET=$(openssl rand -hex 16)"
-echo "EVOLUTION_API_KEY=$(openssl rand -hex 20)"
-```
-
-### 3. Schema SQL dos leads
-Tabela `leads` no banco PostgreSQL (banco `leads`) ainda não foi criada.
-Retomar: pedir para o assistente gerar o `schema.sql`.
+### 3. ~~Schema SQL dos leads~~ ✅ CONCLUÍDO 2026-04-27
+Tabela `leads` criada no banco `leads`. Arquivo: `postgres/schema.sql`.
 
 ### 4. Sistema web de manutenção da lista
 Interface para cadastro e gestão de leads — ainda não iniciado.

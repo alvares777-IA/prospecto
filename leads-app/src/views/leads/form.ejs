@@ -1,0 +1,75 @@
+<div class="d-flex align-items-center mb-3">
+  <a href="/leads" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><%= lead ? 'Editar Lead' : 'Novo Lead' %></h5>
+</div>
+
+<div class="card border-0 shadow-sm" style="max-width:640px">
+  <div class="card-body p-4">
+    <% if (erro) { %>
+    <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
+    <% } %>
+
+    <form method="post" action="<%= lead?.id ? '/leads/' + lead.id + '/editar' : '/leads/novo' %>">
+      <div class="row g-3">
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label fw-semibold">Telefone (WhatsApp) <span class="text-danger">*</span></label>
+          <input type="tel" name="telefone" class="form-control"
+                 value="<%= lead?.telefone || '' %>" required
+                 placeholder="55 11 99999-9999">
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label fw-semibold">Status</label>
+          <select name="status" class="form-select">
+            <% for (const s of STATUS_VALIDOS) { %>
+            <option value="<%= s %>" <%= (lead?.status || 'novo') === s ? 'selected' : '' %>>
+              <%= s.charAt(0).toUpperCase() + s.slice(1) %>
+            </option>
+            <% } %>
+          </select>
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label">Nome</label>
+          <input type="text" name="nome" class="form-control" value="<%= lead?.nome || '' %>">
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label">Empresa</label>
+          <input type="text" name="empresa" class="form-control" value="<%= lead?.empresa || '' %>">
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label">Cargo</label>
+          <input type="text" name="cargo" class="form-control" value="<%= lead?.cargo || '' %>">
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label">E-mail</label>
+          <input type="email" name="email" class="form-control" value="<%= lead?.email || '' %>">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label">Origem</label>
+          <input type="text" name="origem" class="form-control"
+                 value="<%= lead?.origem || '' %>"
+                 placeholder="ex: indicação, site, planilha">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label">Observações</label>
+          <textarea name="observacoes" class="form-control" rows="3"><%= lead?.observacoes || '' %></textarea>
+        </div>
+
+        <div class="col-12 d-flex gap-2 pt-1">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Salvar
+          </button>
+          <a href="/leads" class="btn btn-outline-secondary">Cancelar</a>
+        </div>
+
+      </div>
+    </form>
+  </div>
+</div>
