@@ -61,4 +61,36 @@ router.post('/:id/editar', requireLogin, requirePerfil('admin'), async (req, res
     }
 });
 
+router.post('/:id/excluir', requireLogin, requirePerfil('admin'), async (req, res) => {
+    const id = Number(req.params.id);
+
+    if (id === req.session.usuario.id) {
+        req.session.flash = { erro: 'Você não pode excluir sua própria conta.' };
+        return res.redirect('/usuarios');
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `SELECT COUNT(*)::int AS total FROM usuarios WHERE perfil = 'admin' AND ativo = true`);
+        const { rows: alvo } = await pool.query(
+            `SELECT perfil FROM usuarios WHERE id = $1`, [id]);
+
+        if (alvo[0]?.perfil === 'admin' && rows[0].total <= 1) {
+            req.session.flash = { erro: 'Não é possível excluir o único administrador do sistema.' };
+            return res.redirect('/usuarios');
+        }
+
+        // Remove sessões ativas do usuário
+        await pool.query(
+            `DELETE FROM sessoes WHERE (sess::jsonb -> 'usuario' ->> 'id')::int = $1`, [id]);
+
+        await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+        req.session.flash = { sucesso: 'Usuário excluído com sucesso.' };
+    } catch (err) {
+        console.error(err);
+        req.session.flash = { erro: 'Erro ao excluir usuário.' };
+    }
+    res.redirect('/usuarios');
+});
+
 module.exports = router;
