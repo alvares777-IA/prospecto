@@ -15,11 +15,16 @@ async function evo(path, opts = {}) {
 }
 
 router.get('/', requireLogin, async (req, res) => {
-    let state = 'erro';
-    try {
-        const data = await evo(`/instance/connectionState/${INSTANCE}`);
-        state = data?.instance?.state || 'close';
-    } catch (_) {}
+    // Se vier de um desconectar, usa o estado do flash para evitar flicker
+    let state = res.locals.flash?.state || null;
+    if (!state) {
+        try {
+            const data = await evo(`/instance/connectionState/${INSTANCE}`);
+            state = data?.instance?.state || 'close';
+        } catch (_) {
+            state = 'close';
+        }
+    }
     res.render('whatsapp/index', { title: 'WhatsApp', page: 'whatsapp', state });
 });
 
@@ -44,7 +49,7 @@ router.get('/qrcode', requireLogin, async (req, res) => {
 router.post('/desconectar', requireLogin, async (req, res) => {
     try {
         await evo(`/instance/logout/${INSTANCE}`, { method: 'DELETE' });
-        req.session.flash = { sucesso: 'WhatsApp desconectado com sucesso.' };
+        req.session.flash = { sucesso: 'WhatsApp desconectado com sucesso.', state: 'close' };
     } catch (_) {
         req.session.flash = { erro: 'Erro ao desconectar. Tente novamente.' };
     }

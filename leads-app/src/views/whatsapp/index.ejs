@@ -32,11 +32,9 @@
           <div class="d-flex align-items-center mb-3">
             <span class="badge bg-danger me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Desconectado</span>
           </div>
-          <p class="text-muted small mb-4">Gere o QR Code para conectar um celular.</p>
+          <p class="text-muted small mb-4">Gere o QR Code ao lado para conectar um celular.</p>
           <% } %>
         </div>
-
-        <div id="live-status" class="mt-3"></div>
       </div>
     </div>
   </div>
@@ -55,16 +53,32 @@
         </div>
         <% } else { %>
         <div id="qr-area">
-          <div class="text-muted py-4" id="qr-loading">
-            <div class="spinner-border spinner-border-sm me-2"></div>Buscando QR Code...
+
+          <!-- Botão inicial -->
+          <div id="qr-btn-area" class="py-4">
+            <i class="bi bi-qr-code text-muted" style="font-size:3rem"></i>
+            <p class="text-muted small mt-3 mb-3">Clique para gerar o QR Code e conectar um celular.</p>
+            <button id="btn-gerar-qr" class="btn btn-primary">
+              <i class="bi bi-qr-code-scan me-2"></i>Gerar QR Code
+            </button>
           </div>
+
+          <!-- Carregando (oculto) -->
+          <div class="text-muted py-4 d-none" id="qr-loading">
+            <div class="spinner-border spinner-border-sm me-2"></div>Aguardando QR Code...
+          </div>
+
+          <!-- Imagem do QR (oculta) -->
           <img id="qr-img" src="" alt="QR Code" class="img-fluid d-none" style="max-width:260px;border-radius:8px">
           <p class="text-muted small mt-3 d-none" id="qr-hint">
             <i class="bi bi-phone me-1"></i>Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo
           </p>
+
+          <!-- Erro (oculto) -->
           <div class="text-danger small mt-2 d-none" id="qr-error">
             Não foi possível gerar o QR Code. <a href="/whatsapp">Recarregar</a>
           </div>
+
         </div>
         <% } %>
 
@@ -77,12 +91,15 @@
 <% if (state !== 'open') { %>
 <script>
 (function () {
-  const img     = document.getElementById('qr-img');
-  const loading = document.getElementById('qr-loading');
-  const hint    = document.getElementById('qr-hint');
-  const errEl   = document.getElementById('qr-error');
-  const liveEl  = document.getElementById('live-status');
-  let attempts  = 0;
+  const img      = document.getElementById('qr-img');
+  const loading  = document.getElementById('qr-loading');
+  const hint     = document.getElementById('qr-hint');
+  const errEl    = document.getElementById('qr-error');
+  const btnArea  = document.getElementById('qr-btn-area');
+  const btnGerar = document.getElementById('btn-gerar-qr');
+  let attempts   = 0;
+  let qrTimer    = null;
+  let stTimer    = null;
 
   async function fetchQR() {
     try {
@@ -98,7 +115,7 @@
         if (++attempts > 10) {
           loading.classList.add('d-none');
           errEl.classList.remove('d-none');
-          return;
+          clearInterval(qrTimer);
         }
       }
     } catch (_) {}
@@ -114,9 +131,14 @@
     } catch (_) {}
   }
 
-  fetchQR();
-  setInterval(fetchQR, 5000);
-  setInterval(checkStatus, 4000);
+  btnGerar.addEventListener('click', function () {
+    btnArea.classList.add('d-none');
+    loading.classList.remove('d-none');
+    attempts = 0;
+    fetchQR();
+    qrTimer = setInterval(fetchQR, 5000);
+    stTimer = setInterval(checkStatus, 4000);
+  });
 })();
 </script>
 <% } %>
