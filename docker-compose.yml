@@ -181,9 +181,8 @@ services:
       QRCODE_LIMIT: 30
       # Instâncias
       DEL_INSTANCE: "false"
-      # Força versão atual do protocolo WhatsApp Web (Baileys)
-      WA_VERSION: "2,3000,1035194821"
-      NODE_OPTIONS: "--require /evolution/instances/patch-baileys.js"
+      # Força uso do fetchLatestBaileysVersion() em vez da versão hardcoded da imagem
+      CONFIG_SESSION_PHONE_VERSION: ""
     volumes:
       - evolution_data:/evolution/instances
     depends_on:
