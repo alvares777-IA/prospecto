@@ -56,8 +56,8 @@ if (process.env.GOOGLE_CLIENT_ID) {
             // 3. Cria conta nova com perfil padrão
             const { rows: nr } = await pool.query(
                 `INSERT INTO usuarios (nome, email, senha_hash, google_id, perfil, ativo)
-                 VALUES ($1, $2, $3, $4, 'usuario', true) RETURNING *`,
-                [nome, email, '$google$', googleId]);
+                 VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
+                [nome, email, '$google$', googleId, 'operador']);
             const u = nr[0];
             return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil });
         } catch (err) { return done(err); }
