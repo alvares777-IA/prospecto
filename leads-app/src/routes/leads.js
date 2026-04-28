@@ -6,7 +6,7 @@ const { pool } = require('../db');
 const { requireLogin, requirePerfil } = require('../middleware/auth');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-const STATUS_VALIDOS = ['novo', 'contactado', 'interessado', 'convertido', 'descartado'];
+const STATUS_VALIDOS = ['novo', 'contactado', 'interessado', 'convertido', 'descartado', 'sem_interesse'];
 const POR_PAGINA = 20;
 
 function norm(str) {
