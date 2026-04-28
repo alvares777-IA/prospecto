@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const expressLayouts = require('express-ejs-layouts');
+const passport = require('passport');
 const path = require('path');
 const { pool } = require('./db');
 
@@ -23,6 +24,8 @@ app.use(session({
     saveUninitialized: false,
     cookie: { maxAge: 8 * 60 * 60 * 1000, secure: process.env.NODE_ENV === 'production' }
 }));
+
+app.use(passport.initialize());
 
 app.use((req, res, next) => {
     res.locals.usuario = req.session.usuario || null;
