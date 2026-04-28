@@ -1,0 +1,54 @@
+const router = require('express').Router();
+const { requireLogin, requirePerfil } = require('../middleware/auth');
+
+const EVO_URL  = process.env.EVOLUTION_API_URL || 'http://evolution-api:8080';
+const EVO_KEY  = process.env.EVOLUTION_API_KEY  || '';
+const INSTANCE = process.env.EVOLUTION_INSTANCE || 'prospecto-wa';
+
+async function evo(path, opts = {}) {
+    const res = await fetch(`${EVO_URL}${path}`, {
+        ...opts,
+        headers: { apikey: EVO_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (!res.ok) throw new Error(`Evolution API ${res.status}`);
+    return res.json();
+}
+
+router.get('/', requireLogin, requirePerfil('admin'), async (req, res) => {
+    let state = 'erro';
+    try {
+        const data = await evo(`/instance/connectionState/${INSTANCE}`);
+        state = data?.instance?.state || 'close';
+    } catch (_) {}
+    res.render('whatsapp/index', { title: 'WhatsApp', page: 'whatsapp', state });
+});
+
+router.get('/status', requireLogin, requirePerfil('admin'), async (req, res) => {
+    try {
+        const data = await evo(`/instance/connectionState/${INSTANCE}`);
+        res.json({ state: data?.instance?.state || 'close' });
+    } catch (_) {
+        res.json({ state: 'erro' });
+    }
+});
+
+router.get('/qrcode', requireLogin, requirePerfil('admin'), async (req, res) => {
+    try {
+        const data = await evo(`/instance/connect/${INSTANCE}`);
+        res.json({ base64: data?.base64 || null, count: data?.count || 0 });
+    } catch (_) {
+        res.json({ base64: null, count: 0 });
+    }
+});
+
+router.post('/desconectar', requireLogin, requirePerfil('admin'), async (req, res) => {
+    try {
+        await evo(`/instance/logout/${INSTANCE}`, { method: 'DELETE' });
+        req.session.flash = { sucesso: 'WhatsApp desconectado com sucesso.' };
+    } catch (_) {
+        req.session.flash = { erro: 'Erro ao desconectar. Tente novamente.' };
+    }
+    res.redirect('/whatsapp');
+});
+
+module.exports = router;

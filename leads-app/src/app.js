@@ -35,6 +35,7 @@ app.use('/', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
 app.use('/leads', require('./routes/leads'));
 app.use('/usuarios', require('./routes/usuarios'));
+app.use('/whatsapp', require('./routes/whatsapp'));
 
 const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => console.log(`leads-app rodando na porta ${PORT}`));

@@ -1,0 +1,122 @@
+<div class="d-flex align-items-center mb-4">
+  <i class="bi bi-whatsapp fs-4 text-success me-2"></i>
+  <h5 class="mb-0">WhatsApp</h5>
+</div>
+
+<div class="row g-4">
+
+  <!-- Status card -->
+  <div class="col-12 col-md-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4">
+        <h6 class="text-muted mb-3">Status da Conexão</h6>
+
+        <div id="status-area">
+          <% if (state === 'open') { %>
+          <div class="d-flex align-items-center mb-3">
+            <span class="badge bg-success me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Conectado</span>
+          </div>
+          <p class="text-muted small mb-4">O WhatsApp está ativo e enviando mensagens normalmente.</p>
+          <form method="post" action="/whatsapp/desconectar"
+                onsubmit="return confirm('Deseja desconectar o WhatsApp? O bot será pausado.')">
+            <button class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-power me-1"></i>Desconectar
+            </button>
+          </form>
+          <% } else if (state === 'connecting') { %>
+          <div class="d-flex align-items-center mb-3">
+            <span class="badge bg-warning text-dark me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Aguardando QR Code</span>
+          </div>
+          <p class="text-muted small">Escaneie o QR Code ao lado com o WhatsApp do celular.</p>
+          <% } else { %>
+          <div class="d-flex align-items-center mb-3">
+            <span class="badge bg-danger me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Desconectado</span>
+          </div>
+          <p class="text-muted small mb-4">Gere o QR Code para conectar um celular.</p>
+          <% } %>
+        </div>
+
+        <div id="live-status" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code card -->
+  <div class="col-12 col-md-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4 text-center">
+        <h6 class="text-muted mb-3">QR Code</h6>
+
+        <% if (state === 'open') { %>
+        <div class="py-4 text-success">
+          <i class="bi bi-check-circle-fill" style="font-size:4rem"></i>
+          <p class="mt-3 mb-0 fw-semibold">Celular conectado</p>
+          <p class="text-muted small">O bot está operacional.</p>
+        </div>
+        <% } else { %>
+        <div id="qr-area">
+          <div class="text-muted py-4" id="qr-loading">
+            <div class="spinner-border spinner-border-sm me-2"></div>Buscando QR Code...
+          </div>
+          <img id="qr-img" src="" alt="QR Code" class="img-fluid d-none" style="max-width:260px;border-radius:8px">
+          <p class="text-muted small mt-3 d-none" id="qr-hint">
+            <i class="bi bi-phone me-1"></i>Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo
+          </p>
+          <div class="text-danger small mt-2 d-none" id="qr-error">
+            Não foi possível gerar o QR Code. <a href="/whatsapp">Recarregar</a>
+          </div>
+        </div>
+        <% } %>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<% if (state !== 'open') { %>
+<script>
+(function () {
+  const img     = document.getElementById('qr-img');
+  const loading = document.getElementById('qr-loading');
+  const hint    = document.getElementById('qr-hint');
+  const errEl   = document.getElementById('qr-error');
+  const liveEl  = document.getElementById('live-status');
+  let attempts  = 0;
+
+  async function fetchQR() {
+    try {
+      const r = await fetch('/whatsapp/qrcode');
+      const d = await r.json();
+      if (d.base64) {
+        img.src = d.base64;
+        img.classList.remove('d-none');
+        hint.classList.remove('d-none');
+        loading.classList.add('d-none');
+        attempts = 0;
+      } else {
+        if (++attempts > 10) {
+          loading.classList.add('d-none');
+          errEl.classList.remove('d-none');
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+
+  async function checkStatus() {
+    try {
+      const r = await fetch('/whatsapp/status');
+      const d = await r.json();
+      if (d.state === 'open') {
+        window.location.reload();
+      }
+    } catch (_) {}
+  }
+
+  fetchQR();
+  setInterval(fetchQR, 5000);
+  setInterval(checkStatus, 4000);
+})();
+</script>
+<% } %>

@@ -144,6 +144,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${LEADS_DB_NAME}
       SESSION_SECRET: ${SESSION_SECRET}
       NODE_ENV: production
+      EVOLUTION_API_URL: http://evolution-api:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      EVOLUTION_INSTANCE: prospecto-wa
     depends_on:
       postgres:
         condition: service_healthy
