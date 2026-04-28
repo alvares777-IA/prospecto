@@ -53,13 +53,13 @@
           <i class="bi bi-cloud-upload me-2"></i>Upload
         </a>
 
-        <% if (usuario.perfil === 'admin') { %>
         <div class="section-label">Administração</div>
-        <a class="nav-link <%= page==='usuarios' ? 'active' : '' %>" href="/usuarios">
-          <i class="bi bi-shield-person me-2"></i>Usuários
-        </a>
         <a class="nav-link <%= page==='whatsapp' ? 'active' : '' %>" href="/whatsapp">
           <i class="bi bi-whatsapp me-2"></i>WhatsApp
+        </a>
+        <% if (usuario.perfil === 'admin') { %>
+        <a class="nav-link <%= page==='usuarios' ? 'active' : '' %>" href="/usuarios">
+          <i class="bi bi-shield-person me-2"></i>Usuários
         </a>
         <% } %>
       </nav>

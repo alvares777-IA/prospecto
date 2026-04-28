@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { requireLogin, requirePerfil } = require('../middleware/auth');
+const { requireLogin } = require('../middleware/auth');
 
 const EVO_URL  = process.env.EVOLUTION_API_URL || 'http://evolution-api:8080';
 const EVO_KEY  = process.env.EVOLUTION_API_KEY  || '';
@@ -14,7 +14,7 @@ async function evo(path, opts = {}) {
     return res.json();
 }
 
-router.get('/', requireLogin, requirePerfil('admin'), async (req, res) => {
+router.get('/', requireLogin, async (req, res) => {
     let state = 'erro';
     try {
         const data = await evo(`/instance/connectionState/${INSTANCE}`);
@@ -23,7 +23,7 @@ router.get('/', requireLogin, requirePerfil('admin'), async (req, res) => {
     res.render('whatsapp/index', { title: 'WhatsApp', page: 'whatsapp', state });
 });
 
-router.get('/status', requireLogin, requirePerfil('admin'), async (req, res) => {
+router.get('/status', requireLogin, async (req, res) => {
     try {
         const data = await evo(`/instance/connectionState/${INSTANCE}`);
         res.json({ state: data?.instance?.state || 'close' });
@@ -32,7 +32,7 @@ router.get('/status', requireLogin, requirePerfil('admin'), async (req, res) => 
     }
 });
 
-router.get('/qrcode', requireLogin, requirePerfil('admin'), async (req, res) => {
+router.get('/qrcode', requireLogin, async (req, res) => {
     try {
         const data = await evo(`/instance/connect/${INSTANCE}`);
         res.json({ base64: data?.base64 || null, count: data?.count || 0 });
@@ -41,7 +41,7 @@ router.get('/qrcode', requireLogin, requirePerfil('admin'), async (req, res) => 
     }
 });
 
-router.post('/desconectar', requireLogin, requirePerfil('admin'), async (req, res) => {
+router.post('/desconectar', requireLogin, async (req, res) => {
     try {
         await evo(`/instance/logout/${INSTANCE}`, { method: 'DELETE' });
         req.session.flash = { sucesso: 'WhatsApp desconectado com sucesso.' };
