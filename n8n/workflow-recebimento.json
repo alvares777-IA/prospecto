@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const d = $input.item.json;\nconst event = d.event || '';\nconst fromMe = d.data?.key?.fromMe ?? true;\nconst text = (\n  d.data?.message?.conversation ||\n  d.data?.message?.extendedTextMessage?.text ||\n  ''\n).toLowerCase().trim();\nconst phone = (d.data?.key?.remoteJid || '').split('@')[0];\n\nconst keywords = ['ok', 'sim', 'quero', 'pode ser', 'tenho interesse', 'tudo bem'];\nconst isPositive = keywords.some(k => text.includes(k));\n\nreturn [{ json: { event, fromMe, text, phone, isPositive } }];"
+        "jsCode": "const body = $input.first().json.body;\nconst event = body.event || '';\n\n// Recibo de entrega: capturar @lid\nif (event === 'messages.update') {\n  const updates = Array.isArray(body.data) ? body.data : [];\n  for (const upd of updates) {\n    const jid = upd.key?.remoteJid || '';\n    if (upd.key?.fromMe && jid.endsWith('@lid') && upd.key?.id) {\n      return [{ json: { _tipo: 'salvar_lid', message_id: upd.key.id, lid: jid } }];\n    }\n  }\n  return [];\n}\n\n// Mensagem recebida do lead\nconst fromMe = body.data?.key?.fromMe ?? true;\nconst text = (\n  body.data?.message?.conversation ||\n  body.data?.message?.extendedTextMessage?.text ||\n  ''\n).trim();\nconst jid = body.data?.key?.remoteJid || '';\n\nif (event !== 'messages.upsert' || fromMe || !text) return [];\n\nconst keywords = ['ok', 'sim', 'quero', 'pode ser', 'tenho interesse',\n                  'tudo bem', 'oi', 'olá', 'ola'];\nconst norm = t => t.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\nconst isPositive = keywords.some(k => norm(text).includes(norm(k)));\nconst rota = isPositive ? 'interessado' : 'sem_interesse';\n\nreturn [{ json: { _tipo: 'mensagem', jid, text, rota } }];"
       },
       "id": "b2222222-0000-0000-0000-000000000002",
       "name": "Processar Mensagem",
@@ -31,31 +31,64 @@
           "conditions": [
             {
               "id": "c1",
-              "leftValue": "={{ $json.event }}",
-              "rightValue": "MESSAGES_UPSERT",
+              "leftValue": "={{ $json._tipo }}",
+              "rightValue": "salvar_lid",
               "operator": { "type": "string", "operation": "equals" }
-            },
-            {
-              "id": "c2",
-              "leftValue": "={{ $json.fromMe }}",
-              "rightValue": true,
-              "operator": { "type": "boolean", "operation": "notEqual" }
-            },
-            {
-              "id": "c3",
-              "leftValue": "={{ $json.text }}",
-              "rightValue": "",
-              "operator": { "type": "string", "operation": "notEmpty", "rightType": "any" }
             }
           ],
           "combinator": "and"
         }
       },
       "id": "b2222222-0000-0000-0000-000000000003",
-      "name": "É mensagem recebida?",
+      "name": "Switch Tipo",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_lid = '{{ $json.lid }}' WHERE last_message_id = '{{ $json.message_id }}' AND whatsapp_lid IS NULL",
+        "options": {}
+      },
+      "id": "b2222222-0000-0000-0000-000000000007",
+      "name": "Salvar LID por message_id",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [920, 160],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM leads WHERE whatsapp_jid = '{{ $json.jid }}' OR whatsapp_lid = '{{ $json.jid }}' LIMIT 1",
+        "options": {}
+      },
+      "id": "b2222222-0000-0000-0000-000000000008",
+      "name": "Buscar Lead por JID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [920, 440],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_lid = '{{ $('Processar Mensagem').item.json.jid }}' WHERE id = {{ $json.id }} AND whatsapp_lid IS NULL",
+        "options": {}
+      },
+      "id": "b2222222-0000-0000-0000-000000000009",
+      "name": "Salvar LID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1140, 440],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
     },
     {
       "parameters": {
@@ -63,32 +96,32 @@
           "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
             {
-              "id": "c4",
-              "leftValue": "={{ $json.isPositive }}",
-              "rightValue": true,
-              "operator": { "type": "boolean", "operation": "equal" }
+              "id": "c2",
+              "leftValue": "={{ $('Processar Mensagem').item.json.rota }}",
+              "rightValue": "interessado",
+              "operator": { "type": "string", "operation": "equals" }
             }
           ],
           "combinator": "and"
         }
       },
       "id": "b2222222-0000-0000-0000-000000000004",
-      "name": "Tem interesse?",
+      "name": "Switch Rota",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [900, 200]
+      "position": [1360, 440]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET status = 'interessado' WHERE telefone = '{{ $json.phone }}' AND status = 'contactado'",
+        "query": "UPDATE leads SET status = 'interessado' WHERE id = {{ $('Buscar Lead por JID').item.json.id }}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000005",
       "name": "Marcar Interessado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1120, 140],
+      "position": [1580, 320],
       "credentials": {
         "postgres": { "id": "1", "name": "Postgres Leads" }
       }
@@ -105,14 +138,50 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"🔔 Lead com interesse!\\n\\nTelefone: {{ $('Processar Mensagem').item.json.phone }}\\nMensagem: {{ $('Processar Mensagem').item.json.text }}\"\n}",
+        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"🔔 Lead com interesse!\\n\\nJID: {{ $('Processar Mensagem').item.json.jid }}\\nMensagem: {{ $('Processar Mensagem').item.json.text }}\"\n}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000006",
       "name": "Notificar Admin",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 140]
+      "position": [1800, 320]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'sem_interesse' WHERE id = {{ $('Buscar Lead por JID').item.json.id }}",
+        "options": {}
+      },
+      "id": "b2222222-0000-0000-0000-000000000010",
+      "name": "Marcar Sem Interesse",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1580, 560],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution-api:8080/message/sendText/prospecto-wa",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "2260026779083fe4f6b552c2a572f34dfb7343a4" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"📩 Lead respondeu (sem interesse)\\n\\nJID: {{ $('Processar Mensagem').item.json.jid }}\\nMensagem: {{ $('Processar Mensagem').item.json.text }}\"\n}",
+        "options": {}
+      },
+      "id": "b2222222-0000-0000-0000-000000000011",
+      "name": "Notificar Admin Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 560]
     }
   ],
   "connections": {
@@ -120,22 +189,31 @@
       "main": [[{ "node": "Processar Mensagem", "type": "main", "index": 0 }]]
     },
     "Processar Mensagem": {
-      "main": [[{ "node": "É mensagem recebida?", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Switch Tipo", "type": "main", "index": 0 }]]
     },
-    "É mensagem recebida?": {
+    "Switch Tipo": {
       "main": [
-        [{ "node": "Tem interesse?", "type": "main", "index": 0 }],
-        []
+        [{ "node": "Salvar LID por message_id", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Lead por JID", "type": "main", "index": 0 }]
       ]
     },
-    "Tem interesse?": {
+    "Buscar Lead por JID": {
+      "main": [[{ "node": "Salvar LID", "type": "main", "index": 0 }]]
+    },
+    "Salvar LID": {
+      "main": [[{ "node": "Switch Rota", "type": "main", "index": 0 }]]
+    },
+    "Switch Rota": {
       "main": [
         [{ "node": "Marcar Interessado", "type": "main", "index": 0 }],
-        []
+        [{ "node": "Marcar Sem Interesse", "type": "main", "index": 0 }]
       ]
     },
     "Marcar Interessado": {
       "main": [[{ "node": "Notificar Admin", "type": "main", "index": 0 }]]
+    },
+    "Marcar Sem Interesse": {
+      "main": [[{ "node": "Notificar Admin Resposta", "type": "main", "index": 0 }]]
     }
   },
   "active": false,

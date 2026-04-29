@@ -73,6 +73,21 @@
     {
       "parameters": {
         "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_jid = '{{ $json.key.remoteJid }}', last_message_id = '{{ $json.key.id }}' WHERE id = {{ $('Buscar Lead').item.json.id }}",
+        "options": {}
+      },
+      "id": "a1111111-0000-0000-0000-000000000006",
+      "name": "Salvar JID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 200],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
         "query": "UPDATE leads SET status = 'contactado' WHERE id = {{ $('Buscar Lead').item.json.id }}",
         "options": {}
       },
@@ -80,7 +95,7 @@
       "name": "Marcar Contactado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1120, 200],
+      "position": [1340, 200],
       "credentials": {
         "postgres": { "id": "1", "name": "Postgres Leads" }
       }
@@ -100,6 +115,9 @@
       ]
     },
     "Enviar Mensagem": {
+      "main": [[{ "node": "Salvar JID", "type": "main", "index": 0 }]]
+    },
+    "Salvar JID": {
       "main": [[{ "node": "Marcar Contactado", "type": "main", "index": 0 }]]
     }
   },

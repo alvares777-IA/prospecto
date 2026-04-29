@@ -6,6 +6,7 @@ pool.query(`
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS google_id TEXT;
     ALTER TABLE leads ADD COLUMN IF NOT EXISTS whatsapp_jid TEXT;
     ALTER TABLE leads ADD COLUMN IF NOT EXISTS whatsapp_lid TEXT;
+    ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_message_id TEXT;
     ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_status_check;
     ALTER TABLE leads ADD CONSTRAINT leads_status_check
         CHECK (status = ANY(ARRAY['novo','contactado','interessado','convertido','descartado','sem_interesse']));
