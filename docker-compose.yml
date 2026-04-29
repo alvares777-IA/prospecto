@@ -78,6 +78,7 @@ services:
       # Execuções (evita acúmulo de histórico no banco)
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 168
+      N8N_PUSH_BACKEND: sse
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
