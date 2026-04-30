@@ -23,6 +23,13 @@ function mapCol(obj, candidates) {
     return null;
 }
 
+function normalizarTelefone(raw) {
+    const digits = raw?.toString().replace(/\D/g, '') || '';
+    if (digits.length === 9)  return '5511' + digits;
+    if (digits.length === 11) return '55'   + digits;
+    return digits;
+}
+
 // ── Listagem ───────────────────────────────────────────────────
 router.get('/', requireLogin, async (req, res) => {
     const { status, busca, pagina = 1 } = req.query;
@@ -103,7 +110,7 @@ router.post('/upload', requireLogin, requirePerfil('operador'), upload.single('a
                      VALUES ($1,$2,$3,$4,$5,'novo',$6,$7)
                      ON CONFLICT (telefone) DO NOTHING`,
                     [
-                        telefone,
+                        normalizarTelefone(telefone),
                         mapCol(r, ['nome', 'name', 'contato', 'cliente']),
                         mapCol(r, ['empresa', 'company', 'razao_social']),
                         mapCol(r, ['cargo', 'funcao', 'title', 'role']),
@@ -133,7 +140,7 @@ router.post('/novo', requireLogin, requirePerfil('operador'), async (req, res) =
         await pool.query(
             `INSERT INTO leads (telefone, nome, empresa, cargo, email, status, origem, observacoes)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [telefone.trim(), nome || null, empresa || null, cargo || null, email || null, status || 'novo', origem || null, observacoes || null]
+            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status || 'novo', origem || null, observacoes || null]
         );
         req.session.flash = { sucesso: 'Lead cadastrado com sucesso.' };
         res.redirect('/leads');
@@ -155,7 +162,7 @@ router.post('/:id/editar', requireLogin, requirePerfil('operador'), async (req, 
     try {
         await pool.query(
             `UPDATE leads SET telefone=$1, nome=$2, empresa=$3, cargo=$4, email=$5, status=$6, origem=$7, observacoes=$8 WHERE id=$9`,
-            [telefone.trim(), nome || null, empresa || null, cargo || null, email || null, status, origem || null, observacoes || null, req.params.id]
+            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status, origem || null, observacoes || null, req.params.id]
         );
         req.session.flash = { sucesso: 'Lead atualizado com sucesso.' };
         res.redirect('/leads');
