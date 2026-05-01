@@ -50,11 +50,22 @@
           <input type="email" name="email" class="form-control" value="<%= lead?.email || '' %>">
         </div>
 
-        <div class="col-12">
+        <div class="col-12 col-sm-6">
           <label class="form-label">Origem</label>
           <input type="text" name="origem" class="form-control"
                  value="<%= lead?.origem || '' %>"
                  placeholder="ex: indicação, site, planilha">
+        </div>
+
+        <div class="col-12 col-sm-6">
+          <label class="form-label fw-semibold">Campanha <span class="text-danger">*</span></label>
+          <select name="campanha_id" class="form-select" required>
+            <% for (const c of campanhas) { %>
+            <option value="<%= c.id %>" <%= (lead?.campanha_id ?? defaultCampanha) == c.id ? 'selected' : '' %>>
+              <%= c.id %> — <%= c.descricao %>
+            </option>
+            <% } %>
+          </select>
         </div>
 
         <div class="col-12">

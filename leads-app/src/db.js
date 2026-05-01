@@ -17,6 +17,18 @@ const migrations = [
       usado      BOOLEAN DEFAULT false,
       criado_em  TIMESTAMPTZ DEFAULT NOW()
   )`,
+  `CREATE TABLE IF NOT EXISTS campanhas (
+      id        SERIAL PRIMARY KEY,
+      descricao VARCHAR(120) NOT NULL,
+      texto     TEXT NOT NULL,
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `INSERT INTO campanhas (id, descricao, texto)
+   VALUES (1, 'Campanha Padrão', 'Olá {nome}, tudo bem? Temos uma solução para seu condomínio. Posso te apresentar em 2 minutos?')
+   ON CONFLICT (id) DO NOTHING`,
+  `ALTER TABLE leads ADD COLUMN IF NOT EXISTS campanha_id INTEGER REFERENCES campanhas(id)`,
+  `UPDATE leads SET campanha_id = 1 WHERE campanha_id IS NULL`,
+  `ALTER TABLE leads ALTER COLUMN campanha_id SET NOT NULL`,
 ];
 
 (async () => {

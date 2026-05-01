@@ -9,6 +9,17 @@ CREATE TYPE status_lead AS ENUM (
     'descartado'
 );
 
+CREATE TABLE IF NOT EXISTS campanhas (
+    id        SERIAL PRIMARY KEY,
+    descricao VARCHAR(120) NOT NULL,
+    texto     TEXT NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO campanhas (id, descricao, texto)
+VALUES (1, 'Campanha Padrão', 'Olá {nome}, tudo bem? Temos uma solução para seu condomínio. Posso te apresentar em 2 minutos?')
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS leads (
     id              SERIAL PRIMARY KEY,
     telefone        VARCHAR(20)  NOT NULL,
@@ -19,6 +30,7 @@ CREATE TABLE IF NOT EXISTS leads (
     status          status_lead  NOT NULL DEFAULT 'novo',
     origem          VARCHAR(60),
     observacoes     TEXT,
+    campanha_id     INTEGER      NOT NULL REFERENCES campanhas(id) DEFAULT 1,
     criado_em       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     atualizado_em   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

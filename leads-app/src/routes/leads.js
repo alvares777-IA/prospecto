@@ -30,6 +30,11 @@ function normalizarTelefone(raw) {
     return digits;
 }
 
+async function maxCampanhaId() {
+    const { rows } = await pool.query('SELECT MAX(id) AS max_id FROM campanhas');
+    return rows[0].max_id || 1;
+}
+
 // ── Listagem ───────────────────────────────────────────────────
 router.get('/', requireLogin, async (req, res) => {
     const { status, busca, pagina = 1 } = req.query;
@@ -37,20 +42,20 @@ router.get('/', requireLogin, async (req, res) => {
     const cond = [];
 
     if (status && STATUS_VALIDOS.includes(status)) {
-        p.push(status); cond.push(`status = $${p.length}`);
+        p.push(status); cond.push(`l.status = $${p.length}`);
     }
     if (busca && busca.trim()) {
         p.push(`%${busca.trim()}%`);
         const n = p.length;
-        cond.push(`(nome ILIKE $${n} OR telefone ILIKE $${n} OR empresa ILIKE $${n})`);
+        cond.push(`(l.nome ILIKE $${n} OR l.telefone ILIKE $${n} OR l.empresa ILIKE $${n})`);
     }
 
     const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
     const offset = (Number(pagina) - 1) * POR_PAGINA;
 
     const [countRes, leadsRes] = await Promise.all([
-        pool.query(`SELECT COUNT(*)::int AS total FROM leads ${where}`, p),
-        pool.query(`SELECT * FROM leads ${where} ORDER BY criado_em DESC LIMIT $${p.length + 1} OFFSET $${p.length + 2}`, [...p, POR_PAGINA, offset])
+        pool.query(`SELECT COUNT(*)::int AS total FROM leads l ${where}`, p),
+        pool.query(`SELECT l.*, c.descricao AS campanha_descricao FROM leads l LEFT JOIN campanhas c ON c.id = l.campanha_id ${where} ORDER BY l.criado_em DESC LIMIT $${p.length + 1} OFFSET $${p.length + 2}`, [...p, POR_PAGINA, offset])
     ]);
 
     const total = countRes.rows[0].total;
@@ -62,15 +67,21 @@ router.get('/', requireLogin, async (req, res) => {
 });
 
 // ── Upload ─────────────────────────────────────────────────────
-router.get('/upload', requireLogin, requirePerfil('operador'), (req, res) => {
-    res.render('leads/upload', { title: 'Upload de Leads', page: 'leads-upload', resultado: null, erro: null });
+router.get('/upload', requireLogin, requirePerfil('operador'), async (req, res) => {
+    const { rows: campanhas } = await pool.query('SELECT id, descricao FROM campanhas ORDER BY id');
+    const defaultCampanha = await maxCampanhaId();
+    res.render('leads/upload', { title: 'Upload de Leads', page: 'leads-upload', resultado: null, erro: null, campanhas, defaultCampanha });
 });
 
 router.post('/upload', requireLogin, requirePerfil('operador'), upload.single('arquivo'), async (req, res) => {
+    const { rows: campanhas } = await pool.query('SELECT id, descricao FROM campanhas ORDER BY id');
+    const defaultCampanha = await maxCampanhaId();
     const render = (resultado, erro) =>
-        res.render('leads/upload', { title: 'Upload de Leads', page: 'leads-upload', resultado, erro });
+        res.render('leads/upload', { title: 'Upload de Leads', page: 'leads-upload', resultado, erro, campanhas, defaultCampanha });
 
     if (!req.file) return render(null, 'Nenhum arquivo enviado.');
+
+    const campanhaFallback = parseInt(req.body.campanha_id) || defaultCampanha;
 
     try {
         const nome = req.file.originalname.toLowerCase();
@@ -104,10 +115,11 @@ router.post('/upload', requireLogin, requirePerfil('operador'), upload.single('a
         for (const r of registros) {
             const telefone = mapCol(r, ['telefone', 'fone', 'celular', 'whatsapp', 'phone', 'tel']);
             if (!telefone) { erros++; continue; }
+            const campanha_id = parseInt(mapCol(r, ['campanha_id', 'campanha'])) || campanhaFallback;
             try {
-                const res = await pool.query(
-                    `INSERT INTO leads (telefone, nome, empresa, cargo, email, status, origem, observacoes)
-                     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7)
+                const result = await pool.query(
+                    `INSERT INTO leads (telefone, nome, empresa, cargo, email, status, origem, observacoes, campanha_id)
+                     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7,$8)
                      ON CONFLICT (telefone) DO NOTHING`,
                     [
                         normalizarTelefone(telefone),
@@ -116,10 +128,11 @@ router.post('/upload', requireLogin, requirePerfil('operador'), upload.single('a
                         mapCol(r, ['cargo', 'funcao', 'title', 'role']),
                         mapCol(r, ['email', 'e-mail', 'mail']),
                         mapCol(r, ['origem', 'source', 'procedencia']) || 'upload',
-                        mapCol(r, ['observacoes', 'obs', 'notes', 'nota'])
+                        mapCol(r, ['observacoes', 'obs', 'notes', 'nota']),
+                        campanha_id
                     ]
                 );
-                if (res.rowCount > 0) inseridos++; else duplicados++;
+                if (result.rowCount > 0) inseridos++; else duplicados++;
             } catch { erros++; }
         }
         render({ total: registros.length, inseridos, duplicados, erros }, null);
@@ -130,46 +143,60 @@ router.post('/upload', requireLogin, requirePerfil('operador'), upload.single('a
 });
 
 // ── Novo ───────────────────────────────────────────────────────
-router.get('/novo', requireLogin, requirePerfil('operador'), (req, res) => {
-    res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: null, STATUS_VALIDOS, erro: null });
+router.get('/novo', requireLogin, requirePerfil('operador'), async (req, res) => {
+    const [{ rows: campanhas }, defaultCampanha] = await Promise.all([
+        pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
+        maxCampanhaId()
+    ]);
+    res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: null, STATUS_VALIDOS, erro: null, campanhas, defaultCampanha });
 });
 
 router.post('/novo', requireLogin, requirePerfil('operador'), async (req, res) => {
-    const { telefone, nome, empresa, cargo, email, status, origem, observacoes } = req.body;
+    const { telefone, nome, empresa, cargo, email, status, origem, observacoes, campanha_id } = req.body;
     try {
         await pool.query(
-            `INSERT INTO leads (telefone, nome, empresa, cargo, email, status, origem, observacoes)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status || 'novo', origem || null, observacoes || null]
+            `INSERT INTO leads (telefone, nome, empresa, cargo, email, status, origem, observacoes, campanha_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status || 'novo', origem || null, observacoes || null, campanha_id]
         );
         req.session.flash = { sucesso: 'Lead cadastrado com sucesso.' };
         res.redirect('/leads');
     } catch (err) {
+        const [{ rows: campanhas }, defaultCampanha] = await Promise.all([
+            pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
+            maxCampanhaId()
+        ]);
         const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
-        res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: req.body, STATUS_VALIDOS, erro });
+        res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: req.body, STATUS_VALIDOS, erro, campanhas, defaultCampanha });
     }
 });
 
 // ── Editar ─────────────────────────────────────────────────────
 router.get('/:id/editar', requireLogin, requirePerfil('operador'), async (req, res) => {
-    const { rows } = await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]);
-    if (!rows[0]) return res.redirect('/leads');
-    res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: rows[0], STATUS_VALIDOS, erro: null });
+    const [leadRes, campRes] = await Promise.all([
+        pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]),
+        pool.query('SELECT id, descricao FROM campanhas ORDER BY id')
+    ]);
+    if (!leadRes.rows[0]) return res.redirect('/leads');
+    res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: leadRes.rows[0], STATUS_VALIDOS, erro: null, campanhas: campRes.rows, defaultCampanha: null });
 });
 
 router.post('/:id/editar', requireLogin, requirePerfil('operador'), async (req, res) => {
-    const { telefone, nome, empresa, cargo, email, status, origem, observacoes } = req.body;
+    const { telefone, nome, empresa, cargo, email, status, origem, observacoes, campanha_id } = req.body;
     try {
         await pool.query(
-            `UPDATE leads SET telefone=$1, nome=$2, empresa=$3, cargo=$4, email=$5, status=$6, origem=$7, observacoes=$8 WHERE id=$9`,
-            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status, origem || null, observacoes || null, req.params.id]
+            `UPDATE leads SET telefone=$1, nome=$2, empresa=$3, cargo=$4, email=$5, status=$6, origem=$7, observacoes=$8, campanha_id=$9 WHERE id=$10`,
+            [normalizarTelefone(telefone), nome || null, empresa || null, cargo || null, email || null, status, origem || null, observacoes || null, campanha_id, req.params.id]
         );
         req.session.flash = { sucesso: 'Lead atualizado com sucesso.' };
         res.redirect('/leads');
     } catch (err) {
-        const { rows } = await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]);
+        const [leadRes, campRes] = await Promise.all([
+            pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]),
+            pool.query('SELECT id, descricao FROM campanhas ORDER BY id')
+        ]);
         const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
-        res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: { ...rows[0], ...req.body }, STATUS_VALIDOS, erro });
+        res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: { ...leadRes.rows[0], ...req.body }, STATUS_VALIDOS, erro, campanhas: campRes.rows, defaultCampanha: null });
     }
 });
 

@@ -39,14 +39,22 @@
     </p>
     <p class="text-muted small mb-3">
       Colunas reconhecidas: <code>telefone</code>, <code>nome</code>, <code>empresa</code>,
-      <code>cargo</code>, <code>email</code>, <code>origem</code>, <code>observacoes</code>
-      <br>Variações aceitas: <code>celular</code>, <code>whatsapp</code>, <code>fone</code>, etc.
+      <code>cargo</code>, <code>email</code>, <code>origem</code>, <code>observacoes</code>, <code>campanha_id</code>
+      <br>Variações aceitas: <code>celular</code>, <code>whatsapp</code>, <code>fone</code>, <code>campanha</code>, etc.
     </p>
 
     <form method="post" action="/leads/upload" enctype="multipart/form-data">
       <div class="mb-3">
         <label class="form-label fw-semibold">Arquivo</label>
         <input type="file" name="arquivo" class="form-control" accept=".csv,.xlsx,.xls" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Campanha padrão <span class="text-muted fw-normal">(quando não especificada no arquivo)</span></label>
+        <select name="campanha_id" class="form-select">
+          <% for (const c of campanhas) { %>
+          <option value="<%= c.id %>" <%= c.id == defaultCampanha ? 'selected' : '' %>><%= c.id %> — <%= c.descricao %></option>
+          <% } %>
+        </select>
       </div>
       <button type="submit" class="btn btn-primary w-100">
         <i class="bi bi-cloud-upload me-2"></i>Importar

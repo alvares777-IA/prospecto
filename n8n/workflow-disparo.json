@@ -16,7 +16,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, COALESCE(nome, 'Cliente') AS nome, telefone FROM leads WHERE status = 'novo' ORDER BY criado_em ASC LIMIT 1",
+        "query": "SELECT id, COALESCE(nome, 'Cliente') AS nome, telefone, campanha_id FROM leads WHERE status = 'novo' ORDER BY criado_em ASC LIMIT 1",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000002",
@@ -51,6 +51,31 @@
     },
     {
       "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT texto FROM campanhas WHERE id = {{ $('Buscar Lead').item.json.campanha_id }}",
+        "options": {}
+      },
+      "id": "a1111111-0000-0000-0000-000000000007",
+      "name": "Buscar Campanha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 200],
+      "credentials": {
+        "postgres": { "id": "1", "name": "Postgres Leads" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('Buscar Campanha').item.json.texto;\nconst nome = $('Buscar Lead').item.json.nome || 'Cliente';\nreturn [{ json: { texto: texto.replace('{nome}', nome) } }];"
+      },
+      "id": "a1111111-0000-0000-0000-000000000008",
+      "name": "Montar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://evolution-api:8080/message/sendText/prospecto-wa",
         "sendHeaders": true,
@@ -61,14 +86,14 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={\n  \"number\": \"{{ $('Buscar Lead').item.json.telefone }}\",\n  \"text\": \"Olá {{ $('Buscar Lead').item.json.nome }}, tudo bem? Temos uma solução para seu condomínio. Posso te apresentar em 2 minutos?\"\n}",
+        "jsonBody": "={\n  \"number\": \"{{ $('Buscar Lead').item.json.telefone }}\",\n  \"text\": \"{{ $('Montar Mensagem').item.json.texto }}\"\n}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000004",
       "name": "Enviar Mensagem",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 200]
+      "position": [1340, 200]
     },
     {
       "parameters": {
@@ -80,7 +105,7 @@
       "name": "Salvar JID",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1120, 200],
+      "position": [1560, 200],
       "credentials": {
         "postgres": { "id": "1", "name": "Postgres Leads" }
       }
@@ -95,7 +120,7 @@
       "name": "Marcar Contactado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1340, 200],
+      "position": [1780, 200],
       "credentials": {
         "postgres": { "id": "1", "name": "Postgres Leads" }
       }
@@ -110,9 +135,15 @@
     },
     "Tem lead?": {
       "main": [
-        [{ "node": "Enviar Mensagem", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Campanha", "type": "main", "index": 0 }],
         []
       ]
+    },
+    "Buscar Campanha": {
+      "main": [[{ "node": "Montar Mensagem", "type": "main", "index": 0 }]]
+    },
+    "Montar Mensagem": {
+      "main": [[{ "node": "Enviar Mensagem", "type": "main", "index": 0 }]]
     },
     "Enviar Mensagem": {
       "main": [[{ "node": "Salvar JID", "type": "main", "index": 0 }]]
