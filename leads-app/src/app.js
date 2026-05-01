@@ -37,6 +37,7 @@ app.use((req, res, next) => {
 app.use('/', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
 app.use('/leads', require('./routes/leads'));
+app.use('/campanhas', require('./routes/campanhas'));
 app.use('/usuarios', require('./routes/usuarios'));
 app.use('/whatsapp', require('./routes/whatsapp'));
 

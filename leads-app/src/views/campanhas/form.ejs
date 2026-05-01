@@ -1,0 +1,45 @@
+<div class="d-flex align-items-center mb-3">
+  <a href="/campanhas" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><%= campanha ? 'Editar Campanha' : 'Nova Campanha' %></h5>
+</div>
+
+<div class="card border-0 shadow-sm" style="max-width:680px">
+  <div class="card-body p-4">
+    <% if (erro) { %>
+    <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
+    <% } %>
+
+    <form method="post" action="<%= campanha?.id ? '/campanhas/' + campanha.id + '/editar' : '/campanhas/nova' %>">
+      <div class="row g-3">
+
+        <div class="col-12 col-sm-3">
+          <label class="form-label text-muted small">Código</label>
+          <input type="text" class="form-control" value="<%= campanha?.id || 'gerado automaticamente' %>" disabled>
+        </div>
+
+        <div class="col-12 col-sm-9">
+          <label class="form-label fw-semibold">Descrição <span class="text-danger">*</span></label>
+          <input type="text" name="descricao" class="form-control"
+                 value="<%= campanha?.descricao || '' %>"
+                 placeholder="ex: Condomínios SP — Abordagem inicial"
+                 maxlength="120" required>
+        </div>
+
+        <div class="col-12">
+          <label class="form-label fw-semibold">Texto da mensagem <span class="text-danger">*</span></label>
+          <textarea name="texto" class="form-control" rows="4" required
+                    placeholder="Use {nome} para inserir o nome do lead automaticamente"><%= campanha?.texto || '' %></textarea>
+          <div class="form-text">Use <code>{nome}</code> onde o nome do lead deve aparecer.</div>
+        </div>
+
+        <div class="col-12 d-flex gap-2 pt-1">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Salvar
+          </button>
+          <a href="/campanhas" class="btn btn-outline-secondary">Cancelar</a>
+        </div>
+
+      </div>
+    </form>
+  </div>
+</div>

@@ -58,6 +58,11 @@
         <a class="nav-link <%= page==='whatsapp' ? 'active' : '' %>" href="/whatsapp">
           <i class="bi bi-whatsapp me-2"></i>WhatsApp
         </a>
+        <% if (['admin','supervisor'].includes(usuario.perfil)) { %>
+        <a class="nav-link <%= page==='campanhas' ? 'active' : '' %>" href="/campanhas">
+          <i class="bi bi-megaphone me-2"></i>Campanhas
+        </a>
+        <% } %>
         <% if (usuario.perfil === 'admin') { %>
         <a class="nav-link <%= page==='usuarios' ? 'active' : '' %>" href="/usuarios">
           <i class="bi bi-shield-person me-2"></i>Usuários
