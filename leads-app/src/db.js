@@ -26,6 +26,7 @@ const migrations = [
   `INSERT INTO campanhas (id, descricao, texto)
    VALUES (1, 'Campanha Padrão', 'Olá {nome}, tudo bem? Temos uma solução para seu condomínio. Posso te apresentar em 2 minutos?')
    ON CONFLICT (id) DO NOTHING`,
+  `SELECT setval('campanhas_id_seq', (SELECT MAX(id) FROM campanhas))`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS campanha_id INTEGER REFERENCES campanhas(id)`,
   `UPDATE leads SET campanha_id = 1 WHERE campanha_id IS NULL`,
   `ALTER TABLE leads ALTER COLUMN campanha_id SET NOT NULL`,

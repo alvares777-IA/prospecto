@@ -20,6 +20,8 @@ INSERT INTO campanhas (id, descricao, texto)
 VALUES (1, 'Campanha Padrão', 'Olá {nome}, tudo bem? Temos uma solução para seu condomínio. Posso te apresentar em 2 minutos?')
 ON CONFLICT (id) DO NOTHING;
 
+SELECT setval('campanhas_id_seq', (SELECT MAX(id) FROM campanhas));
+
 CREATE TABLE IF NOT EXISTS leads (
     id              SERIAL PRIMARY KEY,
     telefone        VARCHAR(20)  NOT NULL,
