@@ -37,7 +37,7 @@
               </a>
               <% if (usuario.perfil === 'admin') { %>
               <form method="post" action="/campanhas/<%= c.id %>/excluir" class="d-inline"
-                    onsubmit="return confirm('Excluir a campanha <%= c.descricao.replace(/'/g,&quot;\\&apos;&quot;) %>?')">
+                    onsubmit="return confirm('Excluir a campanha #<%= c.id %>?')">
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
               </form>
               <% } %>
