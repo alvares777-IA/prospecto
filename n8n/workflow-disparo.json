@@ -86,7 +86,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({ number: $('Buscar Lead').item.json.telefone, text: $('Montar Mensagem').item.json.texto }) }}",
+        "jsonBody": "={{ ({ number: $('Buscar Lead').item.json.telefone, text: $('Montar Mensagem').item.json.texto }) }}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000004",

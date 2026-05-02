@@ -24,7 +24,8 @@ function mapCol(obj, candidates) {
 }
 
 function normalizarTelefone(raw) {
-    const digits = raw?.toString().replace(/\D/g, '') || '';
+    if (raw == null || raw === '') return '';
+    const digits = String(raw).replace(/\D/g, '');
     if (digits.length === 9)  return '5511' + digits;
     if (digits.length === 11) return '55'   + digits;
     return digits;
@@ -162,11 +163,15 @@ router.post('/novo', requireLogin, requirePerfil('operador'), async (req, res) =
         req.session.flash = { sucesso: 'Lead cadastrado com sucesso.' };
         res.redirect('/leads');
     } catch (err) {
+        console.error('[leads/novo]', err.message, err.code);
         const [{ rows: campanhas }, defaultCampanha] = await Promise.all([
             pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
             maxCampanhaId()
         ]);
-        const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
+        const erro = err.code === '23505' ? 'Este telefone já está cadastrado.'
+                   : err.code === '23502' ? 'Campo obrigatório faltando (campanha ou telefone).'
+                   : err.code === '23503' ? 'Campanha selecionada não existe.'
+                   : 'Erro ao salvar: ' + err.message;
         res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: req.body, STATUS_VALIDOS, erro, campanhas, defaultCampanha, historico: [] });
     }
 });
@@ -192,12 +197,16 @@ router.post('/:id/editar', requireLogin, requirePerfil('operador'), async (req, 
         req.session.flash = { sucesso: 'Lead atualizado com sucesso.' };
         res.redirect('/leads');
     } catch (err) {
+        console.error('[leads/editar]', err.message, err.code);
         const [leadRes, campRes, histRes] = await Promise.all([
             pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]),
             pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
             pool.query('SELECT status_lead, dt_status FROM leads_status WHERE id_lead = $1 ORDER BY dt_status ASC', [req.params.id])
         ]);
-        const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
+        const erro = err.code === '23505' ? 'Este telefone já está cadastrado.'
+                   : err.code === '23502' ? 'Campo obrigatório faltando (campanha ou telefone).'
+                   : err.code === '23503' ? 'Campanha selecionada não existe.'
+                   : 'Erro ao salvar: ' + err.message;
         res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: { ...leadRes.rows[0], ...req.body }, STATUS_VALIDOS, erro, campanhas: campRes.rows, defaultCampanha: null, historico: histRes.rows });
     }
 });
