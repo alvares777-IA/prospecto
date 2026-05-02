@@ -30,7 +30,10 @@ const upload = multer({
 
 async function loadUser(id) {
     const { rows } = await pool.query(
-        'SELECT id, nome, email, perfil, avatar FROM usuarios WHERE id = $1', [id]);
+        `SELECT id, nome, email, perfil, avatar,
+                google_id IS NOT NULL                AS tem_google,
+                (senha_hash LIKE '$2%')              AS tem_senha_local
+         FROM usuarios WHERE id = $1`, [id]);
     return rows[0];
 }
 
@@ -113,6 +116,32 @@ router.post('/avatar', requireLogin, (req, res) => {
         const u = await loadUser(req.session.usuario.id);
         render(res, u, erro, sucesso, 'avatar');
     });
+});
+
+// POST /perfil/desvincular-google
+router.post('/desvincular-google', requireLogin, async (req, res) => {
+    const { senha_nova, senha_confirmacao } = req.body;
+    let erro = null, sucesso = null;
+    try {
+        const { rows } = await pool.query(
+            'SELECT google_id, senha_hash FROM usuarios WHERE id = $1',
+            [req.session.usuario.id]);
+        const u = rows[0];
+        if (!u?.google_id) throw new Error('Esta conta não está vinculada ao Google.');
+        if (/^\$2[ab]\$/.test(u.senha_hash)) throw new Error('Esta conta já tem senha local. Use "Trocar senha".');
+        if (!senha_nova || senha_nova.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
+        if (senha_nova !== senha_confirmacao) throw new Error('As senhas não coincidem.');
+
+        const novoHash = await bcrypt.hash(senha_nova, 12);
+        await pool.query(
+            'UPDATE usuarios SET senha_hash = $1, google_id = NULL WHERE id = $2',
+            [novoHash, req.session.usuario.id]);
+        sucesso = 'Google desvinculado. Agora você pode fazer login com e-mail e senha.';
+    } catch (err) {
+        erro = err.message || 'Erro ao desvincular.';
+    }
+    const user = await loadUser(req.session.usuario.id);
+    render(res, user, erro, sucesso, 'senha');
 });
 
 // POST /perfil/avatar/remover

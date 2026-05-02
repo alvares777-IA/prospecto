@@ -109,10 +109,39 @@
     </div>
   </div>
 
-  <!-- ── Senha ──────────────────────────────────────────── -->
+  <!-- ── Senha / Google ───────────────────────────────── -->
   <div class="col-12 col-md-6">
     <div class="card border-0 h-100">
       <div class="card-body p-4">
+
+      <% if (usuario_perfil.tem_google && !usuario_perfil.tem_senha_local) { %>
+        <!-- Conta Google sem senha local -->
+        <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+          <i class="bi bi-google me-1" style="color:#ea4335"></i>Conta vinculada ao Google
+        </div>
+        <div class="mb-4 p-3" style="background:rgba(234,67,53,0.06);border:1px solid rgba(234,67,53,0.2);border-radius:8px;font-size:12px;color:#94a3b8">
+          <i class="bi bi-info-circle me-1" style="color:#ea4335"></i>
+          Seu acesso usa o Google. Para poder entrar com e-mail e senha,
+          defina uma senha abaixo — o Google será desvinculado.
+        </div>
+        <form method="post" action="/perfil/desvincular-google">
+          <div class="mb-3">
+            <label class="form-label">Nova senha</label>
+            <input type="password" name="senha_nova" class="form-control"
+                   required minlength="8" placeholder="Mínimo 8 caracteres">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Confirmar senha</label>
+            <input type="password" name="senha_confirmacao" class="form-control"
+                   required minlength="8" placeholder="Repita a nova senha">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-unlink me-1"></i>Desvincular Google e definir senha
+          </button>
+        </form>
+
+      <% } else { %>
+        <!-- Conta local (ou Google + senha já definida) -->
         <div class="small mb-4" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
           <i class="bi bi-lock me-1" style="color:#fbbf24"></i>Trocar senha
         </div>
@@ -136,6 +165,8 @@
             <i class="bi bi-shield-lock me-1"></i>Alterar senha
           </button>
         </form>
+      <% } %>
+
       </div>
     </div>
   </div>
