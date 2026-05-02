@@ -8,3 +8,4 @@ dads.conf.*
 
 # Claude Code
 .claude/
+node_modules/
