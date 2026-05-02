@@ -161,7 +161,7 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3003}
       # Swagger UI (/api-docs)
       SWAGGER_USER: ${SWAGGER_USER:-admin}
-      SWAGGER_PASS: ${SWAGGER_PASS}
+      SWAGGER_PASS: ${SWAGGER_PASS:-}
       # Google OAuth (opcional)
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}

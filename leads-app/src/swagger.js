@@ -44,6 +44,11 @@ const spec = {
                 name: 'connect.sid',
                 description: 'Cookie de sessão obtido após login em POST /login',
             },
+            basicAuth: {
+                type: 'http',
+                scheme: 'basic',
+                description: 'HTTP Basic Auth — mesmas credenciais do Swagger (SWAGGER_USER / SWAGGER_PASS)',
+            },
         },
         schemas: {
             Lead: {
@@ -99,6 +104,7 @@ const spec = {
         { name: 'Usuários',  description: 'Gerenciamento de usuários (admin)' },
         { name: 'Perfil',    description: 'Perfil do usuário logado' },
         { name: 'WhatsApp',  description: 'Integração WhatsApp via Evolution API' },
+        { name: 'API JSON',  description: 'Endpoints que retornam JSON puro — autenticação via HTTP Basic Auth (SWAGGER_USER / SWAGGER_PASS)' },
     ],
     paths: {
         // ── Auth ────────────────────────────────────────────────────────────────
@@ -558,6 +564,204 @@ const spec = {
             post: {
                 tags: ['WhatsApp'], summary: 'Desconectar instância WhatsApp',
                 responses: { '302': { description: 'Redireciona para /whatsapp' } },
+            },
+        },
+
+        // ── API JSON ─────────────────────────────────────────────────────────────
+        '/api/leads': {
+            get: {
+                tags: ['API JSON'], summary: 'Listar leads (JSON)',
+                security: [{ basicAuth: [] }],
+                parameters: [
+                    { name: 'status',      in: 'query', schema: { type: 'string', enum: ['novo','contactado','interessado','convertido','descartado','sem_interesse'] } },
+                    { name: 'busca',       in: 'query', schema: { type: 'string' }, description: 'Busca por nome, telefone ou empresa' },
+                    { name: 'campanha_id', in: 'query', schema: { type: 'integer' } },
+                    { name: 'pagina',      in: 'query', schema: { type: 'integer', default: 1 } },
+                    { name: 'por_pagina',  in: 'query', schema: { type: 'integer', default: 20, maximum: 100 } },
+                ],
+                responses: {
+                    '200': {
+                        description: 'Lista paginada de leads',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        total:     { type: 'integer' },
+                                        pagina:    { type: 'integer' },
+                                        por_pagina:{ type: 'integer' },
+                                        dados:     { type: 'array', items: { $ref: '#/components/schemas/Lead' } },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/leads/{id}': {
+            get: {
+                tags: ['API JSON'], summary: 'Buscar lead por ID com histórico de status (JSON)',
+                security: [{ basicAuth: [] }],
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+                responses: {
+                    '200': {
+                        description: 'Dados do lead com historico_status',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    allOf: [
+                                        { $ref: '#/components/schemas/Lead' },
+                                        {
+                                            type: 'object',
+                                            properties: {
+                                                historico_status: {
+                                                    type: 'array',
+                                                    items: {
+                                                        type: 'object',
+                                                        properties: {
+                                                            status_lead: { type: 'string' },
+                                                            dt_status:   { type: 'string', format: 'date-time' },
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                    '404': { description: 'Lead não encontrado' },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/campanhas': {
+            get: {
+                tags: ['API JSON'], summary: 'Listar campanhas com total de leads (JSON)',
+                security: [{ basicAuth: [] }],
+                responses: {
+                    '200': {
+                        description: 'Lista de campanhas',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        total: { type: 'integer' },
+                                        dados: {
+                                            type: 'array',
+                                            items: {
+                                                allOf: [
+                                                    { $ref: '#/components/schemas/Campanha' },
+                                                    { type: 'object', properties: { total_leads: { type: 'integer' }, criado_em: { type: 'string', format: 'date-time' } } },
+                                                ],
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/campanhas/{id}': {
+            get: {
+                tags: ['API JSON'], summary: 'Buscar campanha por ID (JSON)',
+                security: [{ basicAuth: [] }],
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+                responses: {
+                    '200': {
+                        description: 'Dados da campanha',
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Campanha' } } },
+                    },
+                    '404': { description: 'Campanha não encontrada' },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/usuarios': {
+            get: {
+                tags: ['API JSON'], summary: 'Listar usuários (JSON)',
+                security: [{ basicAuth: [] }],
+                responses: {
+                    '200': {
+                        description: 'Lista de usuários (sem senha)',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        total: { type: 'integer' },
+                                        dados: { type: 'array', items: { $ref: '#/components/schemas/Usuario' } },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/usuarios/{id}': {
+            get: {
+                tags: ['API JSON'], summary: 'Buscar usuário por ID (JSON)',
+                security: [{ basicAuth: [] }],
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+                responses: {
+                    '200': {
+                        description: 'Dados do usuário (sem senha)',
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Usuario' } } },
+                    },
+                    '404': { description: 'Usuário não encontrado' },
+                    '401': { description: 'Credenciais inválidas' },
+                },
+            },
+        },
+        '/api/leads-status': {
+            get: {
+                tags: ['API JSON'], summary: 'Histórico de mudanças de status dos leads (JSON)',
+                security: [{ basicAuth: [] }],
+                parameters: [
+                    { name: 'lead_id', in: 'query', schema: { type: 'integer' }, description: 'Filtrar pelo ID do lead' },
+                    { name: 'pagina',  in: 'query', schema: { type: 'integer', default: 1 } },
+                ],
+                responses: {
+                    '200': {
+                        description: 'Histórico paginado de status',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        total:     { type: 'integer' },
+                                        pagina:    { type: 'integer' },
+                                        por_pagina:{ type: 'integer' },
+                                        dados: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    id:             { type: 'integer' },
+                                                    id_lead:        { type: 'integer' },
+                                                    status_lead:    { type: 'string' },
+                                                    dt_status:      { type: 'string', format: 'date-time' },
+                                                    lead_nome:      { type: 'string' },
+                                                    lead_telefone:  { type: 'string' },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    '401': { description: 'Credenciais inválidas' },
+                },
             },
         },
     },

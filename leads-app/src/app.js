@@ -47,6 +47,7 @@ app.use(async (req, res, next) => {
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use('/api-docs', basicAuth, swaggerUi.serve, swaggerUi.setup(spec, { customSiteTitle: 'Prospecto-IA — API Docs' }));
+app.use('/api', basicAuth, require('./routes/api'));
 
 app.use('/', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
