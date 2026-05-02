@@ -128,7 +128,6 @@ router.post('/desvincular-google', requireLogin, async (req, res) => {
             [req.session.usuario.id]);
         const u = rows[0];
         if (!u?.google_id) throw new Error('Esta conta não está vinculada ao Google.');
-        if (/^\$2[ab]\$/.test(u.senha_hash)) throw new Error('Esta conta já tem senha local. Use "Trocar senha".');
         if (!senha_nova || senha_nova.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
         if (senha_nova !== senha_confirmacao) throw new Error('As senhas não coincidem.');
 

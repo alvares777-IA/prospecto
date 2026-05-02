@@ -114,15 +114,15 @@
     <div class="card border-0 h-100">
       <div class="card-body p-4">
 
-      <% if (usuario_perfil.tem_google && !usuario_perfil.tem_senha_local) { %>
-        <!-- Conta Google sem senha local -->
+      <% if (usuario_perfil.tem_google) { %>
+        <!-- Conta com Google vinculado (com ou sem senha local) -->
         <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
           <i class="bi bi-google me-1" style="color:#ea4335"></i>Conta vinculada ao Google
         </div>
         <div class="mb-4 p-3" style="background:rgba(234,67,53,0.06);border:1px solid rgba(234,67,53,0.2);border-radius:8px;font-size:12px;color:#94a3b8">
           <i class="bi bi-info-circle me-1" style="color:#ea4335"></i>
-          Seu acesso usa o Google. Para poder entrar com e-mail e senha,
-          defina uma senha abaixo — o Google será desvinculado.
+          Sua conta está vinculada ao Google. Defina uma nova senha para desvincular
+          e passar a usar e-mail e senha normalmente.
         </div>
         <form method="post" action="/perfil/desvincular-google">
           <div class="mb-3">
@@ -141,7 +141,7 @@
         </form>
 
       <% } else { %>
-        <!-- Conta local (ou Google + senha já definida) -->
+        <!-- Conta local sem Google vinculado -->
         <div class="small mb-4" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
           <i class="bi bi-lock me-1" style="color:#fbbf24"></i>Trocar senha
         </div>
