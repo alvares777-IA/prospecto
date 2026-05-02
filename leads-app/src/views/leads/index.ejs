@@ -74,7 +74,7 @@
               </a>
               <% if (['admin','supervisor'].includes(usuario.perfil)) { %>
               <form method="post" action="/leads/<%= l.id %>/excluir" class="d-inline"
-                    onsubmit="return confirm('Excluir o lead <%= (l.nome || l.telefone).replace(/'/g,&quot;\\&apos;&quot;) %>?')">
+                    onsubmit="return confirm('Excluir o lead #<%= l.id %>?')">
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
               </form>
               <% } %>
