@@ -5,6 +5,7 @@ const expressLayouts = require('express-ejs-layouts');
 const passport = require('passport');
 const path = require('path');
 const { pool } = require('./db');
+const { basicAuth, spec, swaggerUi } = require('./swagger');
 
 const app = express();
 
@@ -44,6 +45,8 @@ app.use(async (req, res, next) => {
 });
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+app.use('/api-docs', basicAuth, swaggerUi.serve, swaggerUi.setup(spec, { customSiteTitle: 'Prospecto-IA — API Docs' }));
 
 app.use('/', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
