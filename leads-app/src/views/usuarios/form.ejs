@@ -1,9 +1,9 @@
 <div class="d-flex align-items-center mb-3">
   <a href="/usuarios" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
-  <h5 class="mb-0"><%= registro ? 'Editar Usuário' : 'Novo Usuário' %></h5>
+  <h5 class="mb-0" style="font-weight:700"><%= registro ? 'Editar Usuário' : 'Novo Usuário' %></h5>
 </div>
 
-<div class="card border-0 shadow-sm" style="max-width:480px">
+<div class="card border-0" style="max-width:480px">
   <div class="card-body p-4">
     <% if (erro) { %>
     <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
@@ -12,20 +12,21 @@
     <form method="post" action="<%= registro?.id ? '/usuarios/' + registro.id + '/editar' : '/usuarios/novo' %>">
 
       <div class="mb-3">
-        <label class="form-label fw-semibold">Nome <span class="text-danger">*</span></label>
+        <label class="form-label">Nome <span style="color:#f87171">*</span></label>
         <input type="text" name="nome" class="form-control"
                value="<%= registro?.nome || '' %>" required>
       </div>
 
       <div class="mb-3">
-        <label class="form-label fw-semibold">E-mail <span class="text-danger">*</span></label>
+        <label class="form-label">E-mail <span style="color:#f87171">*</span></label>
         <input type="email" name="email" class="form-control"
                value="<%= registro?.email || '' %>" required>
       </div>
 
       <div class="mb-3">
-        <label class="form-label fw-semibold">
-          <%= registro ? 'Nova Senha (vazio = manter atual)' : 'Senha *' %>
+        <label class="form-label">
+          <%= registro ? 'Nova Senha' : 'Senha' %>
+          <% if (registro) { %><span style="color:#475569;font-size:12px;font-weight:400"> (vazio = manter atual)</span><% } else { %><span style="color:#f87171"> *</span><% } %>
         </label>
         <input type="password" name="senha" class="form-control"
                minlength="8" <%= registro ? '' : 'required' %>
@@ -33,7 +34,7 @@
       </div>
 
       <div class="mb-3">
-        <label class="form-label fw-semibold">Perfil <span class="text-danger">*</span></label>
+        <label class="form-label">Perfil <span style="color:#f87171">*</span></label>
         <select name="perfil" class="form-select" required>
           <% for (const p of PERFIS) { %>
           <option value="<%= p %>" <%= (registro?.perfil || '') === p ? 'selected' : '' %>>
@@ -41,14 +42,16 @@
           </option>
           <% } %>
         </select>
-        <div class="form-text">
-          Admin: acesso total &nbsp;|&nbsp; Supervisor: excluir leads &nbsp;|&nbsp; Operador: cadastrar/editar
+        <div style="font-size:12px;color:#334155;margin-top:6px">
+          <span style="color:#f87171">Admin</span>: acesso total &nbsp;·&nbsp;
+          <span style="color:#fbbf24">Supervisor</span>: excluir leads &nbsp;·&nbsp;
+          <span style="color:#60a5fa">Operador</span>: cadastrar/editar
         </div>
       </div>
 
       <% if (registro) { %>
       <div class="mb-4">
-        <label class="form-label fw-semibold">Status</label>
+        <label class="form-label">Status</label>
         <select name="ativo" class="form-select">
           <option value="true"  <%= registro.ativo ? 'selected' : '' %>>Ativo</option>
           <option value="false" <%= !registro.ativo ? 'selected' : '' %>>Inativo</option>

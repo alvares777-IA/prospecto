@@ -1,58 +1,69 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h5 class="mb-0">Usuários</h5>
+  <h5 class="mb-0" style="font-weight:700">
+    Usuários
+    <span class="badge" style="background:rgba(0,240,255,0.12);color:#00f0ff;border:1px solid rgba(0,240,255,0.25);font-size:12px;font-weight:600"><%= usuarios.length %></span>
+  </h5>
   <a href="/usuarios/novo" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Novo</a>
 </div>
 
-<div class="card border-0 shadow-sm">
-  <div class="table-responsive">
-    <table class="table align-middle mb-0">
-      <thead class="table-light">
-        <tr>
-          <th>Nome</th>
-          <th class="d-none d-md-table-cell">E-mail</th>
-          <th>Perfil</th>
-          <th>Status</th>
-          <th class="text-end pe-3"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (const u of usuarios) { %>
-        <tr>
-          <td>
-            <%= u.nome %>
-            <div class="d-md-none text-muted small"><%= u.email %></div>
-          </td>
-          <td class="d-none d-md-table-cell text-muted small"><%= u.email %></td>
-          <td>
-            <span class="badge bg-secondary" style="text-transform:uppercase;font-size:.7rem"><%= u.perfil %></span>
-          </td>
-          <td>
-            <% if (u.ativo) { %>
-            <span class="badge bg-success">Ativo</span>
-            <% } else { %>
-            <span class="badge bg-danger">Inativo</span>
-            <% } %>
-          </td>
-          <td class="text-end pe-3">
-            <a href="/usuarios/<%= u.id %>/editar" class="btn btn-sm btn-outline-secondary me-1">
-              <i class="bi bi-pencil"></i>
-            </a>
-            <% if (u.id !== usuario.id) { %>
-            <form method="post" action="/usuarios/<%= u.id %>/excluir" class="d-inline"
-                  onsubmit="return confirm('Excluir <%= u.nome.replace(/'/g, "\\'") %>? Esta ação não pode ser desfeita.')">
-              <button class="btn btn-sm btn-outline-danger">
+<div class="card border-0">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th class="d-none d-md-table-cell">E-mail</th>
+            <th>Perfil</th>
+            <th>Status</th>
+            <th class="text-end pe-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% for (const u of usuarios) { %>
+          <tr>
+            <td style="font-weight:500">
+              <%= u.nome %>
+              <div class="d-md-none" style="color:#475569;font-size:12px"><%= u.email %></div>
+            </td>
+            <td class="d-none d-md-table-cell" style="color:#475569;font-size:13px"><%= u.email %></td>
+            <td>
+              <%
+              const perfilCor = { admin: '#f87171', supervisor: '#fbbf24', operador: '#60a5fa' };
+              const cor = perfilCor[u.perfil] || '#94a3b8';
+              %>
+              <span class="badge" style="background:<%= cor %>18;color:<%= cor %>;border:1px solid <%= cor %>44;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
+                <%= u.perfil %>
+              </span>
+            </td>
+            <td>
+              <% if (u.ativo) { %>
+              <span class="badge" style="background:rgba(16,185,129,0.12);color:#10b981;border:1px solid rgba(16,185,129,0.3);font-size:11px">Ativo</span>
+              <% } else { %>
+              <span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);font-size:11px">Inativo</span>
+              <% } %>
+            </td>
+            <td class="text-end pe-3">
+              <a href="/usuarios/<%= u.id %>/editar" class="btn btn-sm btn-outline-secondary me-1">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <% if (u.id !== usuario.id) { %>
+              <form method="post" action="/usuarios/<%= u.id %>/excluir" class="d-inline"
+                    onsubmit="return confirm('Excluir usuário #<%= u.id %>? Esta ação não pode ser desfeita.')">
+                <button class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              <% } else { %>
+              <button class="btn btn-sm btn-outline-danger" disabled title="Você não pode excluir sua própria conta">
                 <i class="bi bi-trash"></i>
               </button>
-            </form>
-            <% } else { %>
-            <button class="btn btn-sm btn-outline-danger" disabled title="Você não pode excluir sua própria conta">
-              <i class="bi bi-trash"></i>
-            </button>
-            <% } %>
-          </td>
-        </tr>
-        <% } %>
-      </tbody>
-    </table>
+              <% } %>
+            </td>
+          </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>

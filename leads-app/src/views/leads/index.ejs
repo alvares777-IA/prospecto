@@ -1,13 +1,15 @@
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-  <h5 class="mb-0">Leads <span class="badge bg-secondary fw-normal"><%= total %></span></h5>
+  <h5 class="mb-0" style="font-weight:700">
+    Leads <span class="badge" style="background:rgba(0,240,255,0.12);color:#00f0ff;border:1px solid rgba(0,240,255,0.25);font-size:12px;font-weight:600"><%= total %></span>
+  </h5>
   <div class="d-flex gap-2">
     <a href="/leads/upload" class="btn btn-outline-secondary btn-sm"><i class="bi bi-cloud-upload me-1"></i>Upload</a>
-    <a href="/leads/novo" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Novo</a>
+    <a href="/leads/novo"   class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Novo</a>
   </div>
 </div>
 
 <!-- Filtros -->
-<form method="get" action="/leads" class="card border-0 shadow-sm mb-3">
+<form method="get" action="/leads" class="card border-0 mb-3">
   <div class="card-body p-3">
     <div class="row g-2">
       <div class="col-12 col-md-6">
@@ -31,17 +33,17 @@
   </div>
 </form>
 
-<div class="card border-0 shadow-sm">
+<div class="card border-0">
   <div class="card-body p-0">
     <% if (leads.length === 0) { %>
-    <div class="text-center text-muted py-5">
-      <i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>
-      Nenhum lead encontrado.
+    <div class="text-center py-5">
+      <i class="bi bi-people fs-1 d-block mb-2" style="color:#1e2a45"></i>
+      <span style="color:#334155">Nenhum lead encontrado.</span>
     </div>
     <% } else { %>
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
-        <thead class="table-light">
+        <thead>
           <tr>
             <th>Nome</th>
             <th>Telefone</th>
@@ -53,14 +55,14 @@
         <tbody>
           <% for (const l of leads) { %>
           <tr>
-            <td><%= l.nome || '—' %></td>
+            <td style="font-weight:500"><%= l.nome || '<span style="color:#334155">—</span>' %></td>
             <td>
               <a href="https://wa.me/<%= l.telefone.replace(/\D/g,'') %>"
-                 target="_blank" class="text-decoration-none text-dark">
-                <i class="bi bi-whatsapp text-success me-1"></i><%= l.telefone %>
+                 target="_blank" class="text-decoration-none" style="color:#e2e8f0">
+                <i class="bi bi-whatsapp me-1" style="color:#10b981"></i><%= l.telefone %>
               </a>
             </td>
-            <td class="d-none d-md-table-cell text-muted small"><%= l.empresa || '—' %></td>
+            <td class="d-none d-md-table-cell" style="color:#475569;font-size:13px"><%= l.empresa || '—' %></td>
             <td>
               <span class="badge s-<%= l.status %>">
                 <%= l.status.charAt(0).toUpperCase() + l.status.slice(1) %>
@@ -72,7 +74,7 @@
               </a>
               <% if (['admin','supervisor'].includes(usuario.perfil)) { %>
               <form method="post" action="/leads/<%= l.id %>/excluir" class="d-inline"
-                    onsubmit="return confirm('Excluir o lead <%= (l.nome || l.telefone).replace(/'/g,"\\'") %>?')">
+                    onsubmit="return confirm('Excluir o lead <%= (l.nome || l.telefone).replace(/'/g,&quot;\\&apos;&quot;) %>?')">
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
               </form>
               <% } %>
@@ -84,8 +86,8 @@
     </div>
 
     <% if (totalPaginas > 1) { %>
-    <div class="d-flex justify-content-between align-items-center p-3 border-top">
-      <small class="text-muted">Página <%= pagina %> de <%= totalPaginas %></small>
+    <div class="d-flex justify-content-between align-items-center p-3" style="border-top:1px solid #1e2a45">
+      <small style="color:#334155">Página <%= pagina %> de <%= totalPaginas %></small>
       <div class="d-flex gap-2">
         <% if (pagina > 1) { %>
         <a class="btn btn-sm btn-outline-secondary"

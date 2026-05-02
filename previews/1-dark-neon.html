@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prospecto-IA — Dark Neon</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #080c18;
+    --surface:  #0d1224;
+    --surface2: #111827;
+    --border:   #1e2a45;
+    --cyan:     #00f0ff;
+    --purple:   #8b5cf6;
+    --pink:     #f472b6;
+    --green:    #10b981;
+    --yellow:   #fbbf24;
+    --orange:   #f97316;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 240px;
+    background: linear-gradient(180deg, #0d1224 0%, #080c18 100%);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px 16px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .sidebar::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 1px; height: 100%;
+    background: linear-gradient(180deg, transparent, var(--cyan), transparent);
+    opacity: 0.3;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 36px;
+    padding: 0 8px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 0 16px rgba(0,240,255,0.4);
+  }
+  .logo-text {
+    font-size: 15px;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 0.5px;
+  }
+
+  .nav-section {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    padding: 0 8px;
+    margin: 20px 0 8px;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: all 0.2s;
+    margin-bottom: 2px;
+  }
+  .nav-link:hover { background: rgba(0,240,255,0.07); color: var(--cyan); }
+  .nav-link.active {
+    background: rgba(0,240,255,0.1);
+    color: var(--cyan);
+    box-shadow: inset 3px 0 0 var(--cyan);
+  }
+
+  .user-box {
+    margin-top: auto;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .user-name { font-size: 13px; font-weight: 600; }
+  .user-role {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--cyan);
+    margin-top: 2px;
+  }
+
+  /* ── Main ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .topbar {
+    background: rgba(13,18,36,0.8);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .topbar-actions { display: flex; gap: 10px; }
+
+  .btn-neon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 16px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .btn-neon-primary {
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    color: #000;
+    box-shadow: 0 0 20px rgba(0,240,255,0.3);
+  }
+  .btn-neon-primary:hover { box-shadow: 0 0 30px rgba(0,240,255,0.5); transform: translateY(-1px); }
+  .btn-neon-ghost {
+    background: transparent;
+    color: var(--cyan);
+    border: 1px solid rgba(0,240,255,0.3);
+  }
+  .btn-neon-ghost:hover { background: rgba(0,240,255,0.07); }
+
+  .content { padding: 28px; overflow-y: auto; flex: 1; }
+
+  /* ── Stat Cards ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent, var(--cyan));
+    box-shadow: 0 0 10px var(--accent, var(--cyan));
+  }
+  .stat-icon { font-size: 20px; margin-bottom: 8px; }
+  .stat-value { font-size: 26px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* ── Gráficos area ── */
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 28px; }
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 16px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12px; }
+  .bar-label { width: 90px; color: #94a3b8; text-align: right; }
+  .bar-track { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; box-shadow: 0 0 8px currentColor; }
+  .bar-val { width: 30px; font-weight: 600; color: var(--text); }
+
+  /* ── Tabela ── */
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .table-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .table-title { font-size: 14px; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    padding: 10px 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.02);
+    text-align: left;
+  }
+  td {
+    padding: 12px 16px;
+    font-size: 13px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    vertical-align: middle;
+  }
+  tr:hover td { background: rgba(0,240,255,0.03); }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-novo       { background: rgba(0,240,255,0.15); color: var(--cyan); border: 1px solid rgba(0,240,255,0.3); }
+  .badge-contactado { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+  .badge-interessado{ background: rgba(251,191,36,0.15); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+  .badge-convertido { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+  .badge-descartado { background: rgba(100,116,139,0.15); color: var(--muted); border: 1px solid rgba(100,116,139,0.3); }
+
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    margin-right: 8px;
+  }
+
+  /* scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.01) 2px, rgba(0,240,255,0.01) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-icon"><i class="bi bi-bullseye" style="color:#000"></i></div>
+    <span class="logo-text">PROSPECTO-IA</span>
+  </div>
+
+  <div class="nav-section">Principal</div>
+  <a href="#" class="nav-link active"><i class="bi bi-speedometer2"></i> Dashboard</a>
+
+  <div class="nav-section">Leads</div>
+  <a href="#" class="nav-link"><i class="bi bi-people"></i> Listar</a>
+  <a href="#" class="nav-link"><i class="bi bi-person-plus"></i> Novo Lead</a>
+  <a href="#" class="nav-link"><i class="bi bi-cloud-upload"></i> Upload</a>
+
+  <div class="nav-section">Administração</div>
+  <a href="#" class="nav-link"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+  <a href="#" class="nav-link"><i class="bi bi-megaphone"></i> Campanhas</a>
+  <a href="#" class="nav-link"><i class="bi bi-shield-person"></i> Usuários</a>
+
+  <div class="user-box" style="margin-top:auto">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--cyan),var(--purple));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000">A</div>
+      <div>
+        <div class="user-name">Admin</div>
+        <div class="user-role">Administrador</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title">Dashboard <span style="color:var(--muted);font-weight:400">/ Visão Geral</span></span>
+    <div class="topbar-actions">
+      <a href="#" class="btn-neon btn-neon-ghost"><i class="bi bi-cloud-upload"></i> Upload</a>
+      <a href="#" class="btn-neon btn-neon-primary"><i class="bi bi-plus-lg"></i> Novo Lead</a>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <div class="stats-grid">
+      <div class="stat-card" style="--accent:#00f0ff">
+        <div class="stat-icon" style="color:#00f0ff"><i class="bi bi-people"></i></div>
+        <div class="stat-value" style="color:#00f0ff">1.284</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-card" style="--accent:#3b82f6">
+        <div class="stat-icon" style="color:#3b82f6"><i class="bi bi-person-plus"></i></div>
+        <div class="stat-value" style="color:#3b82f6">487</div>
+        <div class="stat-label">Novos</div>
+      </div>
+      <div class="stat-card" style="--accent:#60a5fa">
+        <div class="stat-icon" style="color:#60a5fa"><i class="bi bi-chat-dots"></i></div>
+        <div class="stat-value" style="color:#60a5fa">312</div>
+        <div class="stat-label">Contactados</div>
+      </div>
+      <div class="stat-card" style="--accent:#fbbf24">
+        <div class="stat-icon" style="color:#fbbf24"><i class="bi bi-star"></i></div>
+        <div class="stat-value" style="color:#fbbf24">218</div>
+        <div class="stat-label">Interessados</div>
+      </div>
+      <div class="stat-card" style="--accent:#10b981">
+        <div class="stat-icon" style="color:#10b981"><i class="bi bi-check-circle"></i></div>
+        <div class="stat-value" style="color:#10b981">163</div>
+        <div class="stat-label">Convertidos</div>
+      </div>
+      <div class="stat-card" style="--accent:#64748b">
+        <div class="stat-icon" style="color:#64748b"><i class="bi bi-x-circle"></i></div>
+        <div class="stat-value" style="color:#64748b">104</div>
+        <div class="stat-label">Descartados</div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Distribuição geral</div>
+        <div class="bar-row"><span class="bar-label">Novos</span><div class="bar-track"><div class="bar-fill" style="width:38%;background:linear-gradient(90deg,#3b82f6,#00f0ff);color:#00f0ff"></div></div><span class="bar-val">487</span></div>
+        <div class="bar-row"><span class="bar-label">Contactados</span><div class="bar-track"><div class="bar-fill" style="width:24%;background:linear-gradient(90deg,#60a5fa,#3b82f6);color:#60a5fa"></div></div><span class="bar-val">312</span></div>
+        <div class="bar-row"><span class="bar-label">Interessados</span><div class="bar-track"><div class="bar-fill" style="width:17%;background:linear-gradient(90deg,#f59e0b,#fbbf24);color:#fbbf24"></div></div><span class="bar-val">218</span></div>
+        <div class="bar-row"><span class="bar-label">Convertidos</span><div class="bar-track"><div class="bar-fill" style="width:13%;background:linear-gradient(90deg,#059669,#10b981);color:#10b981"></div></div><span class="bar-val">163</span></div>
+        <div class="bar-row"><span class="bar-label">Descartados</span><div class="bar-track"><div class="bar-fill" style="width:8%;background:#334155;color:#64748b"></div></div><span class="bar-val">104</span></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Últimos 30 dias</div>
+        <div class="bar-row"><span class="bar-label">Novos</span><div class="bar-track"><div class="bar-fill" style="width:55%;background:linear-gradient(90deg,#3b82f6,#00f0ff);color:#00f0ff"></div></div><span class="bar-val">44</span></div>
+        <div class="bar-row"><span class="bar-label">Contactados</span><div class="bar-track"><div class="bar-fill" style="width:28%;background:linear-gradient(90deg,#60a5fa,#3b82f6);color:#60a5fa"></div></div><span class="bar-val">22</span></div>
+        <div class="bar-row"><span class="bar-label">Interessados</span><div class="bar-track"><div class="bar-fill" style="width:19%;background:linear-gradient(90deg,#f59e0b,#fbbf24);color:#fbbf24"></div></div><span class="bar-val">15</span></div>
+        <div class="bar-row"><span class="bar-label">Convertidos</span><div class="bar-track"><div class="bar-fill" style="width:10%;background:linear-gradient(90deg,#059669,#10b981);color:#10b981"></div></div><span class="bar-val">8</span></div>
+        <div class="bar-row"><span class="bar-label">Descartados</span><div class="bar-track"><div class="bar-fill" style="width:5%;background:#334155;color:#64748b"></div></div><span class="bar-val">4</span></div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-title">Leads recentes</span>
+        <a href="#" class="btn-neon btn-neon-ghost" style="padding:5px 12px;font-size:12px">Ver todos <i class="bi bi-arrow-right"></i></a>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Lead</th>
+            <th>Empresa</th>
+            <th>Campanha</th>
+            <th>Status</th>
+            <th>Data</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div style="display:flex;align-items:center"><div class="avatar" style="background:linear-gradient(135deg,#00f0ff22,#00f0ff44);color:#00f0ff">RO</div>Roberto Oliveira</div></td>
+            <td style="color:#94a3b8">Cond. Parque Verde</td>
+            <td style="color:#94a3b8">Campanha Padrão</td>
+            <td><span class="badge badge-interessado">Interessado</span></td>
+            <td style="color:#64748b;font-size:12px">01/05/2026</td>
+            <td><button style="background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.2);color:var(--cyan);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer"><i class="bi bi-pencil"></i></button></td>
+          </tr>
+          <tr>
+            <td><div style="display:flex;align-items:center"><div class="avatar" style="background:linear-gradient(135deg,#8b5cf622,#8b5cf644);color:#8b5cf6">AM</div>Ana Martins</div></td>
+            <td style="color:#94a3b8">Res. Bela Vista</td>
+            <td style="color:#94a3b8">Campanha Padrão</td>
+            <td><span class="badge badge-novo">Novo</span></td>
+            <td style="color:#64748b;font-size:12px">01/05/2026</td>
+            <td><button style="background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.2);color:var(--cyan);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer"><i class="bi bi-pencil"></i></button></td>
+          </tr>
+          <tr>
+            <td><div style="display:flex;align-items:center"><div class="avatar" style="background:linear-gradient(135deg,#10b98122,#10b98144);color:#10b981">CS</div>Carlos Santos</div></td>
+            <td style="color:#94a3b8">Cond. Alto do Ipê</td>
+            <td style="color:#94a3b8">Campanha Padrão</td>
+            <td><span class="badge badge-convertido">Convertido</span></td>
+            <td style="color:#64748b;font-size:12px">30/04/2026</td>
+            <td><button style="background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.2);color:var(--cyan);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer"><i class="bi bi-pencil"></i></button></td>
+          </tr>
+          <tr>
+            <td><div style="display:flex;align-items:center"><div class="avatar" style="background:linear-gradient(135deg,#fbbf2422,#fbbf2444);color:#fbbf24">MF</div>Márcia Ferreira</div></td>
+            <td style="color:#94a3b8">Ed. Solar das Águas</td>
+            <td style="color:#94a3b8">Campanha Padrão</td>
+            <td><span class="badge badge-contactado">Contactado</span></td>
+            <td style="color:#64748b;font-size:12px">30/04/2026</td>
+            <td><button style="background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.2);color:var(--cyan);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer"><i class="bi bi-pencil"></i></button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

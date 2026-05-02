@@ -1,16 +1,16 @@
 <div class="d-flex align-items-center mb-3">
   <a href="/leads" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
-  <h5 class="mb-0"><%= lead ? 'Editar Lead' : 'Novo Lead' %></h5>
+  <h5 class="mb-0" style="font-weight:700"><%= lead ? 'Editar Lead' : 'Novo Lead' %></h5>
 </div>
 
 <%
 const STATUS_HIST_COR = {
-  novo:          'primary',
-  contactado:    'info',
-  interessado:   'warning',
-  convertido:    'success',
-  descartado:    'secondary',
-  sem_interesse: 'orange',
+  novo:          '#00f0ff',
+  contactado:    '#60a5fa',
+  interessado:   '#fbbf24',
+  convertido:    '#10b981',
+  descartado:    '#475569',
+  sem_interesse: '#f97316',
 };
 function fmtData(d) {
   const dt = new Date(d);
@@ -18,7 +18,7 @@ function fmtData(d) {
 }
 %>
 
-<div class="card border-0 shadow-sm" style="max-width:640px">
+<div class="card border-0" style="max-width:640px">
   <div class="card-body p-4">
     <% if (erro) { %>
     <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
@@ -28,14 +28,14 @@ function fmtData(d) {
       <div class="row g-3">
 
         <div class="col-12 col-sm-6">
-          <label class="form-label fw-semibold">Telefone (WhatsApp) <span class="text-danger">*</span></label>
+          <label class="form-label">Telefone (WhatsApp) <span style="color:#f87171">*</span></label>
           <input type="tel" name="telefone" class="form-control"
                  value="<%= lead?.telefone || '' %>" required
                  placeholder="55 11 99999-9999">
         </div>
 
         <div class="col-12 col-sm-6">
-          <label class="form-label fw-semibold">Status</label>
+          <label class="form-label">Status</label>
           <select name="status" class="form-select">
             <% for (const s of STATUS_VALIDOS) { %>
             <option value="<%= s %>" <%= (lead?.status || 'novo') === s ? 'selected' : '' %>>
@@ -73,7 +73,7 @@ function fmtData(d) {
         </div>
 
         <div class="col-12 col-sm-6">
-          <label class="form-label fw-semibold">Campanha <span class="text-danger">*</span></label>
+          <label class="form-label">Campanha <span style="color:#f87171">*</span></label>
           <select name="campanha_id" class="form-select" required>
             <% for (const c of campanhas) { %>
             <option value="<%= c.id %>" <%= (lead?.campanha_id ?? defaultCampanha) == c.id ? 'selected' : '' %>>
@@ -101,31 +101,31 @@ function fmtData(d) {
 </div>
 
 <% if (lead?.id) { %>
-<div class="card border-0 shadow-sm mt-3" style="max-width:640px">
+<div class="card border-0 mt-3" style="max-width:640px">
   <div class="card-body p-4">
-    <h6 class="text-muted mb-3"><i class="bi bi-clock-history me-2"></i>Histórico de status</h6>
+    <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+      <i class="bi bi-clock-history me-1" style="color:#8b5cf6"></i>Histórico de status
+    </div>
     <% if (historico.length === 0) { %>
-    <p class="text-muted small mb-0">Nenhuma alteração de status registrada ainda.</p>
+    <p class="mb-0" style="color:#334155;font-size:13px">Nenhuma alteração de status registrada ainda.</p>
     <% } else { %>
     <div class="d-flex flex-column gap-0" style="position:relative">
       <% historico.forEach((h, i) => {
-           const cor = STATUS_HIST_COR[h.status_lead] || 'secondary';
+           const cor = STATUS_HIST_COR[h.status_lead] || '#475569';
            const ultimo = i === historico.length - 1;
       %>
       <div class="d-flex align-items-start gap-3" style="position:relative">
-        <!-- linha vertical -->
         <div style="display:flex;flex-direction:column;align-items:center;width:20px;flex-shrink:0">
-          <div style="width:10px;height:10px;border-radius:50%;background:<%= cor === 'orange' ? '#f97316' : '' %>;margin-top:4px;flex-shrink:0"
-               class="<%= cor !== 'orange' ? 'bg-' + cor : '' %>"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:<%= cor %>;margin-top:5px;flex-shrink:0;box-shadow:0 0 8px <%= cor %>88"></div>
           <% if (!ultimo) { %>
-          <div style="width:2px;flex:1;background:#e2e8f0;min-height:24px"></div>
+          <div style="width:2px;flex:1;background:#1e2a45;min-height:24px"></div>
           <% } %>
         </div>
         <div class="pb-3">
           <span class="badge s-<%= h.status_lead %> me-2">
             <%= h.status_lead.charAt(0).toUpperCase() + h.status_lead.slice(1).replace('_', ' ') %>
           </span>
-          <span class="text-muted small"><%= fmtData(h.dt_status) %></span>
+          <span style="color:#475569;font-size:12px"><%= fmtData(h.dt_status) %></span>
         </div>
       </div>
       <% }) %>

@@ -1,9 +1,9 @@
 <div class="d-flex align-items-center mb-3">
   <a href="/campanhas" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
-  <h5 class="mb-0"><%= campanha ? 'Editar Campanha' : 'Nova Campanha' %></h5>
+  <h5 class="mb-0" style="font-weight:700"><%= campanha ? 'Editar Campanha' : 'Nova Campanha' %></h5>
 </div>
 
-<div class="card border-0 shadow-sm" style="max-width:680px">
+<div class="card border-0" style="max-width:680px">
   <div class="card-body p-4">
     <% if (erro) { %>
     <div class="alert alert-danger py-2"><i class="bi bi-exclamation-triangle me-2"></i><%= erro %></div>
@@ -13,12 +13,13 @@
       <div class="row g-3">
 
         <div class="col-12 col-sm-3">
-          <label class="form-label text-muted small">Código</label>
-          <input type="text" class="form-control" value="<%= campanha?.id || 'gerado automaticamente' %>" disabled>
+          <label class="form-label">Código</label>
+          <input type="text" class="form-control" value="<%= campanha?.id || 'automático' %>" disabled
+                 style="color:#475569">
         </div>
 
         <div class="col-12 col-sm-9">
-          <label class="form-label fw-semibold">Descrição <span class="text-danger">*</span></label>
+          <label class="form-label">Descrição <span style="color:#f87171">*</span></label>
           <input type="text" name="descricao" class="form-control"
                  value="<%= campanha?.descricao || '' %>"
                  placeholder="ex: Condomínios SP — Abordagem inicial"
@@ -26,10 +27,12 @@
         </div>
 
         <div class="col-12">
-          <label class="form-label fw-semibold">Texto da mensagem <span class="text-danger">*</span></label>
-          <textarea name="texto" class="form-control" rows="4" required
+          <label class="form-label">Texto da mensagem <span style="color:#f87171">*</span></label>
+          <textarea name="texto" class="form-control" rows="5" required
                     placeholder="Use {nome} para inserir o nome do lead automaticamente"><%= campanha?.texto || '' %></textarea>
-          <div class="form-text">Use <code>{nome}</code> onde o nome do lead deve aparecer.</div>
+          <div style="font-size:12px;color:#475569;margin-top:6px">
+            Use <code style="color:#00f0ff;background:rgba(0,240,255,0.08);padding:1px 5px;border-radius:4px">{nome}</code> onde o nome do lead deve aparecer.
+          </div>
         </div>
 
         <div class="col-12 d-flex gap-2 pt-1">

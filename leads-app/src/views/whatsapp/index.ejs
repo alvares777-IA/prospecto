@@ -1,5 +1,5 @@
 <div class="d-flex align-items-center mb-4">
-  <i class="bi bi-whatsapp fs-4 text-success me-2"></i>
+  <i class="bi bi-whatsapp fs-4 me-2" style="color:#10b981"></i>
   <h5 class="mb-0">WhatsApp</h5>
 </div>
 
@@ -7,16 +7,20 @@
 
   <!-- Status card -->
   <div class="col-12 col-md-5">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 h-100">
       <div class="card-body p-4">
-        <h6 class="text-muted mb-3">Status da Conexão</h6>
+        <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+          Status da Conexão
+        </div>
 
         <div id="status-area">
           <% if (state === 'open') { %>
           <div class="d-flex align-items-center mb-3">
-            <span class="badge bg-success me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Conectado</span>
+            <span class="badge bg-success p-2" style="border-radius:8px">
+              <i class="bi bi-circle-fill me-1" style="font-size:8px"></i>Conectado
+            </span>
           </div>
-          <p class="text-muted small mb-4">O WhatsApp está ativo e enviando mensagens normalmente.</p>
+          <p class="mb-4" style="color:#64748b;font-size:13px">O WhatsApp está ativo e enviando mensagens normalmente.</p>
           <form method="post" action="/whatsapp/desconectar"
                 onsubmit="return confirm('Deseja desconectar o WhatsApp? O bot será pausado.')">
             <button class="btn btn-outline-danger btn-sm">
@@ -25,14 +29,18 @@
           </form>
           <% } else if (state === 'connecting') { %>
           <div class="d-flex align-items-center mb-3">
-            <span class="badge bg-warning text-dark me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Aguardando QR Code</span>
+            <span class="badge p-2" style="background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:8px">
+              <i class="bi bi-circle-fill me-1" style="font-size:8px"></i>Aguardando QR Code
+            </span>
           </div>
-          <p class="text-muted small">Escaneie o QR Code ao lado com o WhatsApp do celular.</p>
+          <p style="color:#64748b;font-size:13px">Escaneie o QR Code ao lado com o WhatsApp do celular.</p>
           <% } else { %>
           <div class="d-flex align-items-center mb-3">
-            <span class="badge bg-danger me-2 p-2"><i class="bi bi-circle-fill me-1"></i>Desconectado</span>
+            <span class="badge p-2" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#f87171;border-radius:8px">
+              <i class="bi bi-circle-fill me-1" style="font-size:8px"></i>Desconectado
+            </span>
           </div>
-          <p class="text-muted small mb-4">Gere o QR Code ao lado para conectar um celular.</p>
+          <p class="mb-4" style="color:#64748b;font-size:13px">Gere o QR Code ao lado para conectar um celular.</p>
           <% } %>
         </div>
       </div>
@@ -41,42 +49,41 @@
 
   <!-- QR Code card -->
   <div class="col-12 col-md-7">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 h-100">
       <div class="card-body p-4 text-center">
-        <h6 class="text-muted mb-3">QR Code</h6>
+        <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+          QR Code
+        </div>
 
         <% if (state === 'open') { %>
-        <div class="py-4 text-success">
-          <i class="bi bi-check-circle-fill" style="font-size:4rem"></i>
-          <p class="mt-3 mb-0 fw-semibold">Celular conectado</p>
-          <p class="text-muted small">O bot está operacional.</p>
+        <div class="py-4" style="color:#10b981">
+          <i class="bi bi-check-circle-fill" style="font-size:4rem;filter:drop-shadow(0 0 12px rgba(16,185,129,0.5))"></i>
+          <p class="mt-3 mb-0 fw-semibold" style="color:#e2e8f0">Celular conectado</p>
+          <p class="mt-1" style="color:#64748b;font-size:13px">O bot está operacional.</p>
         </div>
         <% } else { %>
         <div id="qr-area">
 
-          <!-- Botão inicial -->
           <div id="qr-btn-area" class="py-4">
-            <i class="bi bi-qr-code text-muted" style="font-size:3rem"></i>
-            <p class="text-muted small mt-3 mb-3">Clique para gerar o QR Code e conectar um celular.</p>
+            <i class="bi bi-qr-code" style="font-size:3rem;color:#334155"></i>
+            <p class="mt-3 mb-3" style="color:#64748b;font-size:13px">Clique para gerar o QR Code e conectar um celular.</p>
             <button id="btn-gerar-qr" class="btn btn-primary">
               <i class="bi bi-qr-code-scan me-2"></i>Gerar QR Code
             </button>
           </div>
 
-          <!-- Carregando (oculto) -->
-          <div class="text-muted py-4 d-none" id="qr-loading">
-            <div class="spinner-border spinner-border-sm me-2"></div>Aguardando QR Code...
+          <div class="py-4 d-none" id="qr-loading" style="color:#64748b">
+            <div class="spinner-border spinner-border-sm me-2" style="color:#00f0ff"></div>Aguardando QR Code...
           </div>
 
-          <!-- Imagem do QR (oculta) -->
-          <img id="qr-img" src="" alt="QR Code" class="img-fluid d-none" style="max-width:260px;border-radius:8px">
-          <p class="text-muted small mt-3 d-none" id="qr-hint">
+          <img id="qr-img" src="" alt="QR Code" class="img-fluid d-none"
+               style="max-width:260px;border-radius:12px;border:2px solid #1e2a45;box-shadow:0 0 24px rgba(0,240,255,0.1)">
+          <p class="mt-3 d-none" id="qr-hint" style="color:#64748b;font-size:13px">
             <i class="bi bi-phone me-1"></i>Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo
           </p>
 
-          <!-- Erro (oculto) -->
-          <div class="text-danger small mt-2 d-none" id="qr-error">
-            Não foi possível gerar o QR Code. <a href="/whatsapp">Recarregar</a>
+          <div class="mt-2 d-none" id="qr-error" style="color:#f87171;font-size:13px">
+            Não foi possível gerar o QR Code. <a href="/whatsapp" style="color:#00f0ff">Recarregar</a>
           </div>
 
         </div>
@@ -97,9 +104,7 @@
   const errEl    = document.getElementById('qr-error');
   const btnArea  = document.getElementById('qr-btn-area');
   const btnGerar = document.getElementById('btn-gerar-qr');
-  let attempts   = 0;
-  let qrTimer    = null;
-  let stTimer    = null;
+  let attempts = 0, qrTimer = null, stTimer = null;
 
   async function fetchQR() {
     try {
@@ -125,9 +130,7 @@
     try {
       const r = await fetch('/whatsapp/status');
       const d = await r.json();
-      if (d.state === 'open') {
-        window.location.reload();
-      }
+      if (d.state === 'open') window.location.reload();
     } catch (_) {}
   }
 

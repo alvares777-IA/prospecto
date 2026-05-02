@@ -1,29 +1,23 @@
-<h5 class="mb-4">Dashboard</h5>
+<h5 class="mb-4" style="font-weight:700;letter-spacing:-0.3px">
+  <i class="bi bi-speedometer2 me-2" style="color:#00f0ff"></i>Dashboard
+</h5>
 
 <%
 const cards = [
-  { key: 'novo',        label: 'Novos',        icon: 'person-plus',  color: 'primary'   },
-  { key: 'contactado',  label: 'Contactados',  icon: 'chat-dots',    color: 'info'      },
-  { key: 'interessado', label: 'Interessados', icon: 'star',         color: 'warning'   },
-  { key: 'convertido',  label: 'Convertidos',  icon: 'check-circle', color: 'success'   },
-  { key: 'descartado',  label: 'Descartados',  icon: 'x-circle',     color: 'secondary' },
+  { key: 'novo',        label: 'Novos',        icon: 'person-plus',  color: '#00f0ff'  },
+  { key: 'contactado',  label: 'Contactados',  icon: 'chat-dots',    color: '#60a5fa'  },
+  { key: 'interessado', label: 'Interessados', icon: 'star',         color: '#fbbf24'  },
+  { key: 'convertido',  label: 'Convertidos',  icon: 'check-circle', color: '#10b981'  },
+  { key: 'descartado',  label: 'Descartados',  icon: 'x-circle',     color: '#94a3b8'  },
 ];
 
 const STATUS_LABELS = {
-  novo:          'Novos',
-  contactado:    'Contactados',
-  interessado:   'Interessados',
-  convertido:    'Convertidos',
-  descartado:    'Descartados',
-  sem_interesse: 'Sem interesse',
+  novo:'Novos', contactado:'Contactados', interessado:'Interessados',
+  convertido:'Convertidos', descartado:'Descartados', sem_interesse:'Sem interesse',
 };
 const STATUS_CORES = {
-  novo:          '#3b82f6',
-  contactado:    '#06b6d4',
-  interessado:   '#f59e0b',
-  convertido:    '#22c55e',
-  descartado:    '#94a3b8',
-  sem_interesse: '#f97316',
+  novo:'#00f0ff', contactado:'#60a5fa', interessado:'#fbbf24',
+  convertido:'#10b981', descartado:'#475569', sem_interesse:'#f97316',
 };
 const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado','sem_interesse'];
 %>
@@ -31,21 +25,24 @@ const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado
 <!-- Cards de resumo -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-sm-4 col-lg-2">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 h-100" style="border-top:2px solid #00f0ff !important;box-shadow:0 0 20px rgba(0,240,255,0.08)">
       <div class="card-body text-center py-3">
-        <i class="bi bi-people text-primary fs-4"></i>
-        <div class="fw-bold fs-3 mt-1"><%= geral %></div>
-        <div class="text-muted small">Total</div>
+        <i class="bi bi-people fs-4" style="color:#00f0ff"></i>
+        <div class="fw-bold fs-3 mt-1" style="color:#00f0ff"><%= geral %></div>
+        <div class="small" style="color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:1px">Total</div>
       </div>
     </div>
   </div>
   <% for (const c of cards) { %>
   <div class="col-6 col-sm-4 col-lg-2">
-    <a href="/leads?status=<%= c.key %>" class="card border-0 shadow-sm h-100 text-decoration-none">
+    <a href="/leads?status=<%= c.key %>" class="card border-0 h-100 text-decoration-none"
+       style="border-top:2px solid <%= c.color %> !important;transition:transform 0.2s,box-shadow 0.2s"
+       onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 0 20px '+'<%= c.color %>'+'22'"
+       onmouseout="this.style.transform='';this.style.boxShadow=''">
       <div class="card-body text-center py-3">
-        <i class="bi bi-<%= c.icon %> text-<%= c.color %> fs-4"></i>
-        <div class="fw-bold fs-3 mt-1"><%= totais[c.key] || 0 %></div>
-        <div class="text-muted small"><%= c.label %></div>
+        <i class="bi bi-<%= c.icon %> fs-4" style="color:<%= c.color %>"></i>
+        <div class="fw-bold fs-3 mt-1" style="color:<%= c.color %>"><%= totais[c.key] || 0 %></div>
+        <div class="small" style="color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:1px"><%= c.label %></div>
       </div>
     </a>
   </div>
@@ -55,40 +52,39 @@ const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado
 <!-- Botões de ação -->
 <div class="d-flex flex-wrap gap-2 mb-4">
   <a href="/leads"        class="btn btn-primary"><i class="bi bi-people me-2"></i>Ver todos os leads</a>
-  <a href="/leads/novo"   class="btn btn-outline-primary"><i class="bi bi-person-plus me-2"></i>Novo Lead</a>
+  <a href="/leads/novo"   class="btn btn-outline-secondary"><i class="bi bi-person-plus me-2"></i>Novo Lead</a>
   <a href="/leads/upload" class="btn btn-outline-secondary"><i class="bi bi-cloud-upload me-2"></i>Upload</a>
 </div>
 
 <!-- Gráficos -->
 <div class="row g-3">
-
-  <!-- Gráfico geral -->
   <div class="col-12 col-lg-6">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body">
-        <h6 class="card-title text-muted mb-3">Situação geral dos leads</h6>
+    <div class="card border-0">
+      <div class="card-body p-4">
+        <div class="small mb-3" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+          <i class="bi bi-bar-chart me-1" style="color:#00f0ff"></i>Situação geral dos leads
+        </div>
         <canvas id="chartGeral" height="220"></canvas>
       </div>
     </div>
   </div>
-
-  <!-- Gráfico por período -->
   <div class="col-12 col-lg-6">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body">
+    <div class="card border-0">
+      <div class="card-body p-4">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <h6 class="card-title text-muted mb-0">Leads criados nos últimos</h6>
+          <div class="small" style="color:#334155;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;font-size:10px">
+            <i class="bi bi-calendar-range me-1" style="color:#8b5cf6"></i>Leads criados nos últimos
+          </div>
           <div class="d-flex align-items-center gap-2">
             <input type="number" id="inputDias" class="form-control form-control-sm text-center"
-                   value="30" min="1" max="365" style="width:70px">
-            <span class="text-muted small">dias</span>
+                   value="30" min="1" max="365" style="width:64px;font-weight:700;color:#00f0ff">
+            <span style="font-size:12px;color:#475569">dias</span>
           </div>
         </div>
         <canvas id="chartPeriodo" height="220"></canvas>
       </div>
     </div>
   </div>
-
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -111,6 +107,11 @@ const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado
     plugins: {
       legend: { display: false },
       tooltip: {
+        backgroundColor: '#0d1224',
+        borderColor: '#1e2a45',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
         callbacks: {
           label: ctx => ` ${ctx.parsed.y} lead${ctx.parsed.y !== 1 ? 's' : ''}`
         }
@@ -119,39 +120,45 @@ const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado
     scales: {
       y: {
         beginAtZero: true,
-        ticks: { precision: 0 },
-        grid: { color: '#f1f5f9' }
+        ticks: { precision: 0, color: '#334155', font: { family: 'Inter', size: 11 } },
+        grid: { color: '#1e2a45' }
       },
-      x: { grid: { display: false } }
+      x: {
+        ticks: { color: '#475569', font: { family: 'Inter', size: 11 } },
+        grid: { display: false }
+      }
     }
   };
 
-  // ── Gráfico geral ──────────────────────────────────────────
   new Chart(document.getElementById('chartGeral'), {
     type: 'bar',
     data: {
       labels,
       datasets: [{
         data: buildDataset(totaisRaw),
-        backgroundColor: cores,
+        backgroundColor: cores.map(c => c + '30'),
+        borderColor: cores,
+        borderWidth: 2,
         borderRadius: 6,
         borderSkipped: false,
+        hoverBackgroundColor: cores.map(c => c + '55'),
       }]
     },
     options: opcoesBase
   });
 
-  // ── Gráfico por período ────────────────────────────────────
-  const ctxPeriodo = document.getElementById('chartPeriodo');
-  const chartPeriodo = new Chart(ctxPeriodo, {
+  const chartPeriodo = new Chart(document.getElementById('chartPeriodo'), {
     type: 'bar',
     data: {
       labels,
       datasets: [{
         data: labels.map(() => 0),
-        backgroundColor: cores,
+        backgroundColor: cores.map(c => c + '30'),
+        borderColor: cores,
+        borderWidth: 2,
         borderRadius: 6,
         borderSkipped: false,
+        hoverBackgroundColor: cores.map(c => c + '55'),
       }]
     },
     options: opcoesBase
@@ -174,9 +181,7 @@ const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado
   document.getElementById('inputDias').addEventListener('input', function () {
     clearTimeout(timer);
     const v = parseInt(this.value);
-    if (v >= 1 && v <= 365) {
-      timer = setTimeout(() => carregarPeriodo(v), 400);
-    }
+    if (v >= 1 && v <= 365) timer = setTimeout(() => carregarPeriodo(v), 400);
   });
 })();
 </script>
