@@ -34,12 +34,15 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 app.use('/', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
 app.use('/leads', require('./routes/leads'));
 app.use('/campanhas', require('./routes/campanhas'));
 app.use('/usuarios', require('./routes/usuarios'));
 app.use('/whatsapp', require('./routes/whatsapp'));
+app.use('/perfil', require('./routes/perfil'));
 
 const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => console.log(`leads-app rodando na porta ${PORT}`));

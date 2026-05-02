@@ -9,6 +9,7 @@ volumes:
   redis_data:
   n8n_data:
   evolution_data:
+  avatars_data:
 
 services:
 
@@ -159,6 +160,8 @@ services:
       # Google OAuth (opcional)
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - avatars_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy

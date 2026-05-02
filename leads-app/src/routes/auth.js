@@ -104,7 +104,7 @@ router.post('/login', async (req, res) => {
 
         if (!ok) return render('E-mail ou senha incorretos.');
 
-        req.session.usuario = { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil };
+        req.session.usuario = { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, avatar: u.avatar || null };
         res.redirect('/dashboard');
     } catch (err) {
         console.error(err);

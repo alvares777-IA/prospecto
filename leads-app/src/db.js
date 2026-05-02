@@ -54,6 +54,7 @@ const migrations = [
   `CREATE TRIGGER trg_leads_status
        AFTER INSERT OR UPDATE ON leads
        FOR EACH ROW EXECUTE FUNCTION fn_registrar_status_lead()`,
+  `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar VARCHAR(255)`,
 ];
 
 (async () => {

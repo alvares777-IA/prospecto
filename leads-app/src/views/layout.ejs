@@ -366,22 +366,31 @@
       </nav>
 
       <div class="mt-auto pt-3" style="border-top:1px solid #1e2a45">
-        <div class="neon-user-box">
+        <a href="/perfil" class="d-block text-decoration-none neon-user-box mb-2"
+           style="transition:border-color 0.2s"
+           onmouseover="this.style.borderColor='rgba(0,240,255,0.4)'"
+           onmouseout="this.style.borderColor='#1e2a45'">
           <div class="d-flex align-items-center gap-2">
-            <div class="neon-user-avatar">
+            <div class="neon-user-avatar" style="overflow:hidden">
+              <% if (usuario.avatar) { %>
+              <img src="<%= usuario.avatar %>" alt="avatar"
+                   style="width:32px;height:32px;object-fit:cover;border-radius:8px;display:block">
+              <% } else { %>
               <%= usuario.nome.charAt(0).toUpperCase() %>
+              <% } %>
             </div>
-            <div class="overflow-hidden">
+            <div class="overflow-hidden flex-grow-1">
               <div class="neon-user-name text-truncate"><%= usuario.nome %></div>
               <div class="neon-user-role"><%= usuario.perfil %></div>
             </div>
+            <i class="bi bi-gear-fill" style="color:#334155;font-size:11px;flex-shrink:0"></i>
           </div>
-          <form method="post" action="/logout" class="mt-2">
-            <button class="btn btn-outline-secondary btn-sm w-100" style="font-size:11px">
-              <i class="bi bi-box-arrow-right me-1"></i>Sair
-            </button>
-          </form>
-        </div>
+        </a>
+        <form method="post" action="/logout">
+          <button class="btn btn-outline-secondary btn-sm w-100" style="font-size:11px">
+            <i class="bi bi-box-arrow-right me-1"></i>Sair
+          </button>
+        </form>
       </div>
 
     </div>
