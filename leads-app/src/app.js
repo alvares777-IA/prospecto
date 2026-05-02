@@ -27,7 +27,16 @@ app.use(session({
 
 app.use(passport.initialize());
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
+    try {
+        // Sessões criadas antes do campo avatar existir não têm a chave —
+        // busca uma vez no banco e persiste na sessão para requisições seguintes.
+        if (req.session.usuario && !('avatar' in req.session.usuario)) {
+            const { rows } = await pool.query(
+                'SELECT avatar FROM usuarios WHERE id = $1', [req.session.usuario.id]);
+            req.session.usuario.avatar = rows[0]?.avatar || null;
+        }
+    } catch { /* se falhar, avatar fica undefined — não quebra o app */ }
     res.locals.usuario = req.session.usuario || null;
     res.locals.flash = req.session.flash || {};
     delete req.session.flash;

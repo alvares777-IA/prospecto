@@ -41,7 +41,7 @@ if (process.env.GOOGLE_CLIENT_ID) {
                 'SELECT * FROM usuarios WHERE google_id = $1 AND ativo = true', [googleId]);
             if (rows[0]) {
                 const u = rows[0];
-                return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil });
+                return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, avatar: u.avatar || null });
             }
 
             // 2. Tem conta com o mesmo e-mail → vincula o Google
@@ -50,7 +50,7 @@ if (process.env.GOOGLE_CLIENT_ID) {
             if (rows[0]) {
                 const u = rows[0];
                 await pool.query('UPDATE usuarios SET google_id = $1 WHERE id = $2', [googleId, u.id]);
-                return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil });
+                return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, avatar: u.avatar || null });
             }
 
             // 3. Cria conta nova com perfil padrão
@@ -59,7 +59,7 @@ if (process.env.GOOGLE_CLIENT_ID) {
                  VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
                 [nome, email, '$google$', googleId, 'operador']);
             const u = nr[0];
-            return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil });
+            return done(null, { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, avatar: u.avatar || null });
         } catch (err) { return done(err); }
     }));
 }
