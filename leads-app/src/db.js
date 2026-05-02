@@ -9,6 +9,11 @@ const migrations = [
   `ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_status_check`,
   `ALTER TABLE leads ADD CONSTRAINT leads_status_check
       CHECK (status::text = ANY(ARRAY['novo','contactado','interessado','convertido','descartado','sem_interesse']))`,
+  `DO $$ BEGIN
+     IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_lead') THEN
+       ALTER TYPE status_lead ADD VALUE IF NOT EXISTS 'sem_interesse';
+     END IF;
+   END $$`,
   `CREATE TABLE IF NOT EXISTS tokens_senha (
       id         SERIAL PRIMARY KEY,
       usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
