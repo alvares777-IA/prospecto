@@ -30,6 +30,30 @@ const migrations = [
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS campanha_id INTEGER REFERENCES campanhas(id)`,
   `UPDATE leads SET campanha_id = 1 WHERE campanha_id IS NULL`,
   `ALTER TABLE leads ALTER COLUMN campanha_id SET NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS leads_status (
+      id          SERIAL PRIMARY KEY,
+      id_lead     INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      status_lead VARCHAR(20) NOT NULL,
+      dt_status   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_leads_status_id_lead ON leads_status (id_lead)`,
+  `CREATE OR REPLACE FUNCTION fn_registrar_status_lead()
+   RETURNS TRIGGER LANGUAGE plpgsql AS $$
+   BEGIN
+       IF TG_OP = 'INSERT' THEN
+           INSERT INTO leads_status (id_lead, status_lead, dt_status)
+           VALUES (NEW.id, NEW.status::text, NOW());
+       ELSIF TG_OP = 'UPDATE' AND NEW.status::text <> OLD.status::text THEN
+           INSERT INTO leads_status (id_lead, status_lead, dt_status)
+           VALUES (NEW.id, NEW.status::text, NOW());
+       END IF;
+       RETURN NEW;
+   END;
+   $$`,
+  `DROP TRIGGER IF EXISTS trg_leads_status ON leads`,
+  `CREATE TRIGGER trg_leads_status
+       AFTER INSERT OR UPDATE ON leads
+       FOR EACH ROW EXECUTE FUNCTION fn_registrar_status_lead()`,
 ];
 
 (async () => {

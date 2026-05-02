@@ -3,6 +3,21 @@
   <h5 class="mb-0"><%= lead ? 'Editar Lead' : 'Novo Lead' %></h5>
 </div>
 
+<%
+const STATUS_HIST_COR = {
+  novo:          'primary',
+  contactado:    'info',
+  interessado:   'warning',
+  convertido:    'success',
+  descartado:    'secondary',
+  sem_interesse: 'orange',
+};
+function fmtData(d) {
+  const dt = new Date(d);
+  return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+%>
+
 <div class="card border-0 shadow-sm" style="max-width:640px">
   <div class="card-body p-4">
     <% if (erro) { %>
@@ -84,3 +99,38 @@
     </form>
   </div>
 </div>
+
+<% if (lead?.id) { %>
+<div class="card border-0 shadow-sm mt-3" style="max-width:640px">
+  <div class="card-body p-4">
+    <h6 class="text-muted mb-3"><i class="bi bi-clock-history me-2"></i>Histórico de status</h6>
+    <% if (historico.length === 0) { %>
+    <p class="text-muted small mb-0">Nenhuma alteração de status registrada ainda.</p>
+    <% } else { %>
+    <div class="d-flex flex-column gap-0" style="position:relative">
+      <% historico.forEach((h, i) => {
+           const cor = STATUS_HIST_COR[h.status_lead] || 'secondary';
+           const ultimo = i === historico.length - 1;
+      %>
+      <div class="d-flex align-items-start gap-3" style="position:relative">
+        <!-- linha vertical -->
+        <div style="display:flex;flex-direction:column;align-items:center;width:20px;flex-shrink:0">
+          <div style="width:10px;height:10px;border-radius:50%;background:<%= cor === 'orange' ? '#f97316' : '' %>;margin-top:4px;flex-shrink:0"
+               class="<%= cor !== 'orange' ? 'bg-' + cor : '' %>"></div>
+          <% if (!ultimo) { %>
+          <div style="width:2px;flex:1;background:#e2e8f0;min-height:24px"></div>
+          <% } %>
+        </div>
+        <div class="pb-3">
+          <span class="badge s-<%= h.status_lead %> me-2">
+            <%= h.status_lead.charAt(0).toUpperCase() + h.status_lead.slice(1).replace('_', ' ') %>
+          </span>
+          <span class="text-muted small"><%= fmtData(h.dt_status) %></span>
+        </div>
+      </div>
+      <% }) %>
+    </div>
+    <% } %>
+  </div>
+</div>
+<% } %>

@@ -148,7 +148,7 @@ router.get('/novo', requireLogin, requirePerfil('operador'), async (req, res) =>
         pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
         maxCampanhaId()
     ]);
-    res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: null, STATUS_VALIDOS, erro: null, campanhas, defaultCampanha });
+    res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: null, STATUS_VALIDOS, erro: null, campanhas, defaultCampanha, historico: [] });
 });
 
 router.post('/novo', requireLogin, requirePerfil('operador'), async (req, res) => {
@@ -167,18 +167,19 @@ router.post('/novo', requireLogin, requirePerfil('operador'), async (req, res) =
             maxCampanhaId()
         ]);
         const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
-        res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: req.body, STATUS_VALIDOS, erro, campanhas, defaultCampanha });
+        res.render('leads/form', { title: 'Novo Lead', page: 'leads-novo', lead: req.body, STATUS_VALIDOS, erro, campanhas, defaultCampanha, historico: [] });
     }
 });
 
 // ── Editar ─────────────────────────────────────────────────────
 router.get('/:id/editar', requireLogin, requirePerfil('operador'), async (req, res) => {
-    const [leadRes, campRes] = await Promise.all([
+    const [leadRes, campRes, histRes] = await Promise.all([
         pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]),
-        pool.query('SELECT id, descricao FROM campanhas ORDER BY id')
+        pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
+        pool.query('SELECT status_lead, dt_status FROM leads_status WHERE id_lead = $1 ORDER BY dt_status ASC', [req.params.id])
     ]);
     if (!leadRes.rows[0]) return res.redirect('/leads');
-    res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: leadRes.rows[0], STATUS_VALIDOS, erro: null, campanhas: campRes.rows, defaultCampanha: null });
+    res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: leadRes.rows[0], STATUS_VALIDOS, erro: null, campanhas: campRes.rows, defaultCampanha: null, historico: histRes.rows });
 });
 
 router.post('/:id/editar', requireLogin, requirePerfil('operador'), async (req, res) => {
@@ -191,12 +192,13 @@ router.post('/:id/editar', requireLogin, requirePerfil('operador'), async (req, 
         req.session.flash = { sucesso: 'Lead atualizado com sucesso.' };
         res.redirect('/leads');
     } catch (err) {
-        const [leadRes, campRes] = await Promise.all([
+        const [leadRes, campRes, histRes] = await Promise.all([
             pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]),
-            pool.query('SELECT id, descricao FROM campanhas ORDER BY id')
+            pool.query('SELECT id, descricao FROM campanhas ORDER BY id'),
+            pool.query('SELECT status_lead, dt_status FROM leads_status WHERE id_lead = $1 ORDER BY dt_status ASC', [req.params.id])
         ]);
         const erro = err.code === '23505' ? 'Este telefone já está cadastrado.' : 'Erro ao salvar.';
-        res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: { ...leadRes.rows[0], ...req.body }, STATUS_VALIDOS, erro, campanhas: campRes.rows, defaultCampanha: null });
+        res.render('leads/form', { title: 'Editar Lead', page: 'leads-lista', lead: { ...leadRes.rows[0], ...req.body }, STATUS_VALIDOS, erro, campanhas: campRes.rows, defaultCampanha: null, historico: histRes.rows });
     }
 });
 
