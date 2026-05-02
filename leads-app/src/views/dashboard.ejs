@@ -2,14 +2,33 @@
 
 <%
 const cards = [
-  { key: 'novo',        label: 'Novos',       icon: 'person-plus',  color: 'primary' },
-  { key: 'contactado',  label: 'Contactados', icon: 'chat-dots',    color: 'info'    },
-  { key: 'interessado', label: 'Interessados',icon: 'star',         color: 'warning' },
-  { key: 'convertido',  label: 'Convertidos', icon: 'check-circle', color: 'success' },
-  { key: 'descartado',  label: 'Descartados', icon: 'x-circle',     color: 'secondary'},
+  { key: 'novo',        label: 'Novos',        icon: 'person-plus',  color: 'primary'   },
+  { key: 'contactado',  label: 'Contactados',  icon: 'chat-dots',    color: 'info'      },
+  { key: 'interessado', label: 'Interessados', icon: 'star',         color: 'warning'   },
+  { key: 'convertido',  label: 'Convertidos',  icon: 'check-circle', color: 'success'   },
+  { key: 'descartado',  label: 'Descartados',  icon: 'x-circle',     color: 'secondary' },
 ];
+
+const STATUS_LABELS = {
+  novo:          'Novos',
+  contactado:    'Contactados',
+  interessado:   'Interessados',
+  convertido:    'Convertidos',
+  descartado:    'Descartados',
+  sem_interesse: 'Sem interesse',
+};
+const STATUS_CORES = {
+  novo:          '#3b82f6',
+  contactado:    '#06b6d4',
+  interessado:   '#f59e0b',
+  convertido:    '#22c55e',
+  descartado:    '#94a3b8',
+  sem_interesse: '#f97316',
+};
+const STATUS_ORDER = ['novo','contactado','interessado','convertido','descartado','sem_interesse'];
 %>
 
+<!-- Cards de resumo -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-sm-4 col-lg-2">
     <div class="card border-0 shadow-sm h-100">
@@ -33,8 +52,131 @@ const cards = [
   <% } %>
 </div>
 
-<div class="d-flex flex-wrap gap-2">
-  <a href="/leads" class="btn btn-primary"><i class="bi bi-people me-2"></i>Ver todos os leads</a>
-  <a href="/leads/novo" class="btn btn-outline-primary"><i class="bi bi-person-plus me-2"></i>Novo Lead</a>
+<!-- Botões de ação -->
+<div class="d-flex flex-wrap gap-2 mb-4">
+  <a href="/leads"        class="btn btn-primary"><i class="bi bi-people me-2"></i>Ver todos os leads</a>
+  <a href="/leads/novo"   class="btn btn-outline-primary"><i class="bi bi-person-plus me-2"></i>Novo Lead</a>
   <a href="/leads/upload" class="btn btn-outline-secondary"><i class="bi bi-cloud-upload me-2"></i>Upload</a>
 </div>
+
+<!-- Gráficos -->
+<div class="row g-3">
+
+  <!-- Gráfico geral -->
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title text-muted mb-3">Situação geral dos leads</h6>
+        <canvas id="chartGeral" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gráfico por período -->
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h6 class="card-title text-muted mb-0">Leads criados nos últimos</h6>
+          <div class="d-flex align-items-center gap-2">
+            <input type="number" id="inputDias" class="form-control form-control-sm text-center"
+                   value="30" min="1" max="365" style="width:70px">
+            <span class="text-muted small">dias</span>
+          </div>
+        </div>
+        <canvas id="chartPeriodo" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const STATUS_ORDER  = <%- JSON.stringify(STATUS_ORDER) %>;
+  const STATUS_LABELS = <%- JSON.stringify(STATUS_LABELS) %>;
+  const STATUS_CORES  = <%- JSON.stringify(STATUS_CORES) %>;
+  const totaisRaw     = <%- JSON.stringify(totais) %>;
+
+  const labels = STATUS_ORDER.map(s => STATUS_LABELS[s]);
+  const cores  = STATUS_ORDER.map(s => STATUS_CORES[s]);
+
+  function buildDataset(totaisObj) {
+    return STATUS_ORDER.map(s => totaisObj[s] || 0);
+  }
+
+  const opcoesBase = {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.y} lead${ctx.parsed.y !== 1 ? 's' : ''}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { precision: 0 },
+        grid: { color: '#f1f5f9' }
+      },
+      x: { grid: { display: false } }
+    }
+  };
+
+  // ── Gráfico geral ──────────────────────────────────────────
+  new Chart(document.getElementById('chartGeral'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: buildDataset(totaisRaw),
+        backgroundColor: cores,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: opcoesBase
+  });
+
+  // ── Gráfico por período ────────────────────────────────────
+  const ctxPeriodo = document.getElementById('chartPeriodo');
+  const chartPeriodo = new Chart(ctxPeriodo, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: labels.map(() => 0),
+        backgroundColor: cores,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: opcoesBase
+  });
+
+  function carregarPeriodo(dias) {
+    fetch(`/dashboard/periodo?dias=${dias}`)
+      .then(r => r.json())
+      .then(rows => {
+        const map = {};
+        rows.forEach(r => { map[r.status] = r.total; });
+        chartPeriodo.data.datasets[0].data = buildDataset(map);
+        chartPeriodo.update();
+      });
+  }
+
+  carregarPeriodo(30);
+
+  let timer;
+  document.getElementById('inputDias').addEventListener('input', function () {
+    clearTimeout(timer);
+    const v = parseInt(this.value);
+    if (v >= 1 && v <= 365) {
+      timer = setTimeout(() => carregarPeriodo(v), 400);
+    }
+  });
+})();
+</script>

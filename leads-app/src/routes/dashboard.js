@@ -12,4 +12,15 @@ router.get('/', requireLogin, async (req, res) => {
     res.render('dashboard', { title: 'Dashboard', page: 'dashboard', totais, geral });
 });
 
+router.get('/periodo', requireLogin, async (req, res) => {
+    const dias = Math.max(1, Math.min(365, parseInt(req.query.dias) || 30));
+    const { rows } = await pool.query(
+        `SELECT status, COUNT(*)::int AS total FROM leads
+         WHERE criado_em >= NOW() - INTERVAL '1 day' * $1
+         GROUP BY status`,
+        [dias]
+    );
+    res.json(rows);
+});
+
 module.exports = router;
