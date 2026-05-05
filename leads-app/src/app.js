@@ -46,7 +46,36 @@ app.use(async (req, res, next) => {
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-app.use('/api-docs', basicAuth, swaggerUi.serve, swaggerUi.setup(spec, { customSiteTitle: 'Prospecto-IA — API Docs' }));
+// Rota de logout do Swagger — retorna 401 para forçar o browser a limpar as credenciais Basic Auth
+app.get('/api-docs/logout', (_req, res) => {
+    res.set('WWW-Authenticate', 'Basic realm="Swagger Docs", charset="UTF-8"');
+    res.status(401).send('<script>location.href="/api-docs"</script>');
+});
+
+const swaggerLogoutJs = `
+(function poll() {
+  var wrapper = document.querySelector('.topbar-wrapper');
+  if (!wrapper) { setTimeout(poll, 300); return; }
+  if (document.getElementById('swagger-logout-btn')) return;
+  var btn = document.createElement('a');
+  btn.id = 'swagger-logout-btn';
+  btn.innerText = 'Sair';
+  btn.href = '#';
+  btn.style.cssText = 'color:#fff;margin-left:auto;padding:6px 16px;background:#c0392b;border-radius:4px;text-decoration:none;font-weight:bold;font-size:14px;display:inline-block;';
+  btn.addEventListener('click', function (e) {
+    e.preventDefault();
+    fetch('/api-docs/logout', {
+      headers: { 'Authorization': 'Basic ' + btoa('logout:logout') }
+    }).finally(function () { location.href = '/api-docs'; });
+  });
+  wrapper.appendChild(btn);
+})();
+`;
+
+app.use('/api-docs', basicAuth, swaggerUi.serve, swaggerUi.setup(spec, {
+    customSiteTitle: 'Prospecto-IA — API Docs',
+    customJsStr: swaggerLogoutJs,
+}));
 app.use('/api', basicAuth, require('./routes/api'));
 
 app.use('/', require('./routes/auth'));
