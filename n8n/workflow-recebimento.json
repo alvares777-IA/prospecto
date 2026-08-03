@@ -78,7 +78,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET whatsapp_lid = '{{ $('Processar Mensagem').item.json.jid }}' WHERE id = {{ $json.id }} AND whatsapp_lid IS NULL",
+        "query": "UPDATE leads SET whatsapp_lid = '{{ $('Processar Mensagem').first().json.jid }}' WHERE id = {{ $json.id }} AND whatsapp_lid IS NULL",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000009",
@@ -97,7 +97,7 @@
           "conditions": [
             {
               "id": "c2",
-              "leftValue": "={{ $('Processar Mensagem').item.json.rota }}",
+              "leftValue": "={{ $('Processar Mensagem').first().json.rota }}",
               "rightValue": "interessado",
               "operator": { "type": "string", "operation": "equals" }
             }
@@ -114,7 +114,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET status = 'interessado' WHERE id = {{ $('Buscar Lead por JID').item.json.id }}",
+        "query": "UPDATE leads SET status = 'interessado' WHERE id = {{ $('Buscar Lead por JID').first().json.id }}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000005",
@@ -138,7 +138,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"🔔 Lead com interesse!\\n\\nJID: {{ $('Processar Mensagem').item.json.jid }}\\nMensagem: {{ $('Processar Mensagem').item.json.text }}\"\n}",
+        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"🔔 Lead com interesse!\\n\\nJID: {{ $('Processar Mensagem').first().json.jid }}\\nMensagem: {{ $('Processar Mensagem').first().json.text }}\"\n}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000006",
@@ -150,7 +150,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET status = 'sem_interesse' WHERE id = {{ $('Buscar Lead por JID').item.json.id }}",
+        "query": "UPDATE leads SET status = 'sem_interesse' WHERE id = {{ $('Buscar Lead por JID').first().json.id }}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000010",
@@ -174,7 +174,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"📩 Lead respondeu (sem interesse)\\n\\nJID: {{ $('Processar Mensagem').item.json.jid }}\\nMensagem: {{ $('Processar Mensagem').item.json.text }}\"\n}",
+        "jsonBody": "={\n  \"number\": \"SEU_NUMERO_AQUI\",\n  \"text\": \"📩 Lead respondeu (sem interesse)\\n\\nJID: {{ $('Processar Mensagem').first().json.jid }}\\nMensagem: {{ $('Processar Mensagem').first().json.text }}\"\n}",
         "options": {}
       },
       "id": "b2222222-0000-0000-0000-000000000011",

@@ -52,7 +52,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT texto FROM campanhas WHERE id = {{ $('Buscar Lead').item.json.campanha_id }}",
+        "query": "SELECT texto FROM campanhas WHERE id = {{ $('Buscar Lead').first().json.campanha_id }}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000007",
@@ -66,7 +66,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const texto = $('Buscar Campanha').item.json.texto;\nconst nome = $('Buscar Lead').item.json.nome || 'Cliente';\nreturn [{ json: { texto: texto.replace('{nome}', nome) } }];"
+        "jsCode": "const texto = $('Buscar Campanha').first().json.texto;\nconst nome = $('Buscar Lead').first().json.nome || 'Cliente';\nreturn [{ json: { texto: texto.replace('{nome}', nome) } }];"
       },
       "id": "a1111111-0000-0000-0000-000000000008",
       "name": "Montar Mensagem",
@@ -89,8 +89,8 @@
         "specifyBody": "keypairs",
         "bodyParameters": {
           "parameters": [
-            { "name": "number", "value": "={{ $('Buscar Lead').item.json.telefone }}" },
-            { "name": "text",   "value": "={{ $('Montar Mensagem').item.json.texto }}" }
+            { "name": "number", "value": "={{ $('Buscar Lead').first().json.telefone }}" },
+            { "name": "text",   "value": "={{ $('Montar Mensagem').first().json.texto }}" }
           ]
         },
         "options": {}
@@ -126,7 +126,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET whatsapp_jid = '{{ $json.key.remoteJid }}', last_message_id = '{{ $json.key.id }}' WHERE id = {{ $('Buscar Lead').item.json.id }}",
+        "query": "UPDATE leads SET whatsapp_jid = '{{ $json.key.remoteJid }}', last_message_id = '{{ $json.key.id }}' WHERE id = {{ $('Buscar Lead').first().json.id }}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000006",
@@ -141,7 +141,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET status = 'contactado' WHERE id = {{ $('Buscar Lead').item.json.id }}",
+        "query": "UPDATE leads SET status = 'contactado' WHERE id = {{ $('Buscar Lead').first().json.id }}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000005",
@@ -156,7 +156,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE leads SET status = 'descartado' WHERE id = {{ $('Buscar Lead').item.json.id }}",
+        "query": "UPDATE leads SET status = 'descartado' WHERE id = {{ $('Buscar Lead').first().json.id }}",
         "options": {}
       },
       "id": "a1111111-0000-0000-0000-000000000010",

@@ -1,0 +1,712 @@
+{
+  "name": "Prospecto - Recebimento",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, COALESCE(nome, 'Cliente') AS nome, telefone, campanha_id FROM leads WHERE status = 'novo' ORDER BY criado_em ASC LIMIT 1",
+        "options": {}
+      },
+      "id": "fe8f4dcf-642d-495b-8071-26603c6f94cc",
+      "name": "Buscar Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1760,
+        32
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "rightType": "any"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a2e2719c-77af-4ced-b3b7-128565a29f98",
+      "name": "Tem lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1552,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT texto FROM campanhas WHERE id = {{ $('Buscar Lead').first().json.campanha_id }}",
+        "options": {}
+      },
+      "id": "4d4006a8-3781-439d-8f7e-11f001bfe257",
+      "name": "Buscar Campanha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1312,
+        -64
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $('Buscar Campanha').first().json.texto;\nconst nome = $('Buscar Lead').first().json.nome || 'Cliente';\nreturn [{ json: { texto: texto.replace('{nome}', nome) } }];"
+      },
+      "id": "5cf191f4-36ae-4ad9-9454-cc00261e0692",
+      "name": "Montar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1088,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution-api:8080/message/sendText/prospecto-wa",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "2260026779083fe4f6b552c2a572f34dfb7343a4"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Buscar Lead').first().json.telefone }}\",\n  \"text\": \"{{ $('Montar Mensagem').first().json.texto }}\"\n}\n",
+        "options": {}
+      },
+      "id": "0619441f-4cf9-49c0-865f-271242c0fdc1",
+      "name": "Enviar Mensagem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -880,
+        -64
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.key?.remoteJid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "rightType": "any"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0759e854-64af-4dbe-b39f-25c158a0ff11",
+      "name": "Número existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -656,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_jid = '{{ $json.key.remoteJid }}', last_message_id = '{{ $json.key.id }}' WHERE id = {{ $('Buscar Lead').first().json.id }}",
+        "options": {}
+      },
+      "id": "be264f7a-a6a1-4e31-9102-ec4f9ba6605d",
+      "name": "Salvar JID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -432,
+        -176
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'contactado' WHERE id = {{ $('Buscar Lead').first().json.id }}",
+        "options": {}
+      },
+      "id": "6d7b6d4f-9b20-44d5-b29a-58f73f00bf0d",
+      "name": "Marcar Contactado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -208,
+        -176
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'descartado' WHERE id = {{ $('Buscar Lead').first().json.id }}",
+        "options": {}
+      },
+      "id": "50271ef2-6347-4e15-a0c3-96da47ae2a0b",
+      "name": "Marcar Descartado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -432,
+        64
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospecto-inbound",
+        "options": {}
+      },
+      "id": "a6149e3b-763a-4241-9750-4cdb9e573aeb",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1984,
+        400
+      ],
+      "webhookId": "prospecto-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst event = body.event || '';\n\n// Recibo de entrega: capturar @lid\nif (event === 'messages.update') {\n  const updates = Array.isArray(body.data) ? body.data : [];\n  for (const upd of updates) {\n    const jid = upd.key?.remoteJid || '';\n    if (upd.key?.fromMe && jid.endsWith('@lid') && upd.key?.id) {\n      return [{ json: { _tipo: 'salvar_lid', message_id: upd.key.id, lid: jid } }];\n    }\n  }\n  return [];\n}\n\n// Mensagem recebida do lead\nconst fromMe = body.data?.key?.fromMe ?? true;\nconst text = (\n  body.data?.message?.conversation ||\n  body.data?.message?.extendedTextMessage?.text ||\n  ''\n).trim();\nconst jid = body.data?.key?.remoteJid || '';\n\nif (event !== 'messages.upsert' || fromMe || !text) return [];\n\nconst keywords = ['ok', 'sim', 'quero', 'pode ser', 'tenho interesse',\n                  'tudo bem', 'oi', 'olá', 'ola'];\nconst norm = t => t.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\nconst isPositive = keywords.some(k => norm(text).includes(norm(k)));\nconst rota = isPositive ? 'interessado' : 'sem_interesse';\n\nreturn [{ json: { _tipo: 'mensagem', jid, text, rota } }];"
+      },
+      "id": "1effbb95-df5f-4dfe-b491-f3b454fbfc34",
+      "name": "Processar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1776,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._tipo }}",
+              "rightValue": "salvar_lid",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dc0943f1-4384-4729-95c2-932105464ab8",
+      "name": "Switch Tipo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1552,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_lid = '{{ $json.lid }}' WHERE last_message_id = '{{ $json.message_id }}' AND whatsapp_lid IS NULL",
+        "options": {}
+      },
+      "id": "6c59b10b-7d6a-40fa-90b0-c52e319b82fb",
+      "name": "Salvar LID por message_id",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1312,
+        256
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM leads WHERE whatsapp_jid = '{{ $json.jid }}' OR whatsapp_lid = '{{ $json.jid }}' LIMIT 1",
+        "options": {}
+      },
+      "id": "d7861b81-1b6e-42d3-92ea-96789923a72b",
+      "name": "Buscar Lead por JID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1312,
+        544
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET whatsapp_lid = '{{ $('Processar Mensagem').first().json.jid }}' WHERE id = {{ $json.id }} AND whatsapp_lid IS NULL",
+        "options": {}
+      },
+      "id": "6dbabff3-ac6c-4e46-a01e-2d7e5e5d66cf",
+      "name": "Salvar LID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1088,
+        544
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $('Processar Mensagem').first().json.rota }}",
+              "rightValue": "interessado",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6627f0a-590b-46ff-bbb0-479a0a9f49a7",
+      "name": "Switch Rota",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -864,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'interessado' WHERE id = {{ $('Buscar Lead por JID').first().json.id }}",
+        "options": {}
+      },
+      "id": "b076c073-d34f-49ae-b3c3-2279e5fe6acf",
+      "name": "Marcar Interessado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -656,
+        416
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution-api:8080/message/sendText/prospecto-wa",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "2260026779083fe4f6b552c2a572f34dfb7343a4"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "bd37f6a3-29e8-4e72-a536-55a483f583fc",
+      "name": "Notificar Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -432,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'sem_interesse' WHERE id = {{ $('Buscar Lead por JID').first().json.id }}",
+        "options": {}
+      },
+      "id": "92559794-cc08-4c11-9ce7-a67c34ff77ca",
+      "name": "Marcar Sem Interesse",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -656,
+        656
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "IQT1a0TXgY3UHFK7",
+          "name": "Postgres Leads"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://evolution-api:8080/message/sendText/prospecto-wa",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "2260026779083fe4f6b552c2a572f34dfb7343a4"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "efccfd78-0de4-4fe3-ab53-aa481e5759b9",
+      "name": "Notificar Admin Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -432,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 3
+            }
+          ]
+        }
+      },
+      "id": "59c748d2-b6bb-4437-be35-ed465c1593a1",
+      "name": "A cada 3 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1968,
+        32
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Buscar Lead": {
+      "main": [
+        [
+          {
+            "node": "Tem lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem lead?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Campanha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Campanha": {
+      "main": [
+        [
+          {
+            "node": "Montar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Enviar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Número existe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Número existe?": {
+      "main": [
+        [
+          {
+            "node": "Salvar JID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar Descartado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar JID": {
+      "main": [
+        [
+          {
+            "node": "Marcar Contactado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Processar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Switch Tipo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Tipo": {
+      "main": [
+        [
+          {
+            "node": "Salvar LID por message_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Lead por JID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Lead por JID": {
+      "main": [
+        [
+          {
+            "node": "Salvar LID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar LID": {
+      "main": [
+        [
+          {
+            "node": "Switch Rota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Rota": {
+      "main": [
+        [
+          {
+            "node": "Marcar Interessado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar Sem Interesse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar Interessado": {
+      "main": [
+        [
+          {
+            "node": "Notificar Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar Sem Interesse": {
+      "main": [
+        [
+          {
+            "node": "Notificar Admin Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A cada 3 min": {
+      "main": [
+        [
+          {
+            "node": "Buscar Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d29393b8-911e-4b6f-9629-d2c8ca1d4d1f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8ce750a59232e1f2f7a936c6659a3f937132c87d3f9b042539109d30e6dbb988"
+  },
+  "id": "0e1mFJ2JIp9kyJ4a",
+  "tags": []
+}
