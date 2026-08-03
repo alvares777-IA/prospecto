@@ -9,3 +9,6 @@ dads.conf.*
 # Claude Code
 .claude/
 node_modules/
+
+# Backups gerados por scripts/backup.sh (contém dados reais)
+backups/
