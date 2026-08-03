@@ -81,7 +81,10 @@ services:
       # Execuções (evita acúmulo de histórico no banco)
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 168
-      N8N_PUSH_BACKEND: sse
+      # websocket (não sse): o Apache (prospect.conf) só tem regra de proxy
+      # para upgrade de WebSocket, não para streams SSE — com sse o push
+      # do editor cai com "Lost connection to the server"
+      N8N_PUSH_BACKEND: websocket
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:

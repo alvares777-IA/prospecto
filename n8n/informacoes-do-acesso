@@ -1,0 +1,14 @@
+login em
+https://app.prospect.rssc.com.br/login
+user admin@prospect.local
+senha Julimar123
+
+n8n com o workflow
+alvares777@gmail.com
+Marcelo
+Pereira
+
+
+ativar backup no crontab
+0 3 * * * /home/producao/prospecto/scripts/backup.sh >> /home/producao/prospecto/backups/backup.log 2>&1
+
