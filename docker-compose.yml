@@ -75,6 +75,10 @@ services:
       N8N_PROTOCOL: https
       WEBHOOK_URL: https://${N8N_HOST}/
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Diz ao Express que existe 1 proxy reverso (Apache) na frente — sem
+      # isso o n8n não confia no X-Forwarded-Proto/For e rejeita o push
+      # do editor com "Invalid origin!" / "Lost connection to the server"
+      N8N_PROXY_HOPS: 1
       # Timezone
       GENERIC_TIMEZONE: America/Sao_Paulo
       TZ: America/Sao_Paulo
