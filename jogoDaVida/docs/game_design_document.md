@@ -1,12 +1,18 @@
 # Documento de Design — Projeto sem nome
 
-*Versão 0.2 — 2026-08-18*
+*Versão 0.3 — 2026-08-30*
 *Estado: pré-produção. Protótipo 2D em navegador.*
 
-**Mudança desde a v0.1:** o protótipo deixou de ser Unity 3D e passou a
-ser JavaScript 2D em navegador. O objetivo é validar história e sistemas
-antes de investir em produção 3D com equipe. Nada do design mudou — só o
-meio. O backend não mudou uma linha.
+**Mudança desde a v0.1:** o protótipo deixou de ser 3D e passou a ser
+JavaScript 2D em navegador, para validar história e sistemas antes de
+investir em produção com equipe. Nada do design mudou — só o meio.
+
+**Mudança desde a v0.2:** os dados saíram de um banco na nuvem com API
+REST e passaram para o PostgreSQL que já roda no stack PROSPECTO-IA,
+acessado direto pelo servidor Node. O motor de destino foi traduzido
+para funções PL/pgSQL (`db/schema_pg.sql`). O desenho do motor —
+eventos imutáveis, ledger, saldo derivado, limiares com histerese,
+outbox — é o mesmo.
 
 ---
 
@@ -101,8 +107,8 @@ transição entre eras vivem em tabela. Ajustar o jogo é `UPDATE`.
 ### 3.1 Motor de destino
 
 ```
-Ação → servidor valida → POST /evento (fato bruto, imutável)
-     → pkg_destino avalia regras ativas contra o histórico
+Ação → servidor valida → registrar_evento(...) (fato bruto, imutável)
+     → o motor de destino avalia regras ativas contra o histórico
         ├ teto de ocorrências na janela?  → descarta
         ├ alvo repetido na janela?        → descarta
         ├ sorteio vs. probabilidade       → grava o roll SEMPRE
@@ -208,10 +214,10 @@ quem nasceu bem.
 |---|---|---|
 | Cliente | HTML/CSS/JS puro, Bootstrap, jQuery | Território do desenvolvedor; iteração em segundos |
 | Tempo real | Socket.IO | Reconexão e fallback resolvidos |
-| Servidor | Node.js + Express | Guarda o segredo, valida, chama o ORDS |
-| Dados | Oracle ADB Always Free | Custo zero; onde o desenvolvedor é sênior |
-| API | ORDS REST + OAuth2 | Expõe PL/SQL direto |
-| Hospedagem | OCI Always Free (ARM) | Mesmo tenancy do banco |
+| Servidor | Node.js + Express | Guarda o segredo, valida, chama as funções do banco |
+| Dados | PostgreSQL (container do stack PROSPECTO-IA, banco `jogodavida`) | Já está de pé; SQL e funções são território do desenvolvedor |
+| Acesso | driver `pg`, de dentro do servidor | Sem API REST intermediária |
+| Hospedagem | mesma máquina do stack; `jogodavida.rssc.com.br` ao publicar | Zero infra nova |
 
 **Ausentes de propósito:** Phaser, Canvas, React, TypeScript, build step.
 Salas são `div`, verbos são `button`. Feio é aceitável; lento de iterar
@@ -219,33 +225,35 @@ não é.
 
 ### Produção (depois, se o protótipo provar)
 
-Unity 6 LTS + Netcode for GameObjects + Steam, com equipe especializada.
-Documentado na v0.1 deste arquivo, no histórico do Git.
+Motor de jogo dedicado + rede + loja, com equipe especializada.
+Documentado no histórico do Git.
 
 ### O que sobrevive à migração
 
-**Todo o backend.** O contrato REST envia apenas fatos e recebe apenas
-códigos opacos de efeito. O cliente 2D e o cliente 3D falam a mesma
-língua. `destino_fatia_vertical.sql` e `destino_ords_setup.sql` não mudam.
+**Todo o motor de destino.** O servidor troca apenas fatos e códigos
+opacos de efeito com o cliente. O cliente 2D e um cliente 3D futuro
+falam a mesma língua. `db/schema_pg.sql` (tabelas + funções PL/pgSQL)
+não muda.
 
-### Contrato REST
+### Contrato com o banco
 
-Base: `/ords/game/destino/v1/`
+O servidor Node chama funções PL/pgSQL no Postgres:
 
-| Método | Rota | Uso |
-|---|---|---|
-| POST | `/sessao` | Abre instância de sala |
-| POST | `/presenca` | Jogador entrou; devolve saldo |
-| POST | `/evento` | Registra fato de gameplay |
-| POST | `/consequencias` | Consome outbox (marca entregue — não é GET) |
-| PUT | `/sessao/:id/encerrar` | Fecha instância |
+| Função | Uso |
+|---|---|
+| `registrar_evento(...)` | Único caminho de escrita de gameplay; idempotente por UUID |
+| `consumir_consequencias(sessao_id)` | Devolve as pendentes E marca entregues |
+| `reconstruir_saldo(jogador_id)` | Recalcula `destino_saldo` do ledger |
+
+Abrir/fechar sessão e presença: `INSERT`/`UPDATE` diretos em
+`server/persistencia.js`.
 
 ### Separação de estado
 
 | Tipo | Onde | Frequência |
 |---|---|---|
 | **Vivo** — presença, turno, posição | Memória do Node | Contínuo |
-| **Persistente** — conta, destino, encarnação | Oracle | Ao fim de ações |
+| **Persistente** — conta, destino, encarnação | PostgreSQL | Ao fim de ações |
 
 ---
 
@@ -275,7 +283,7 @@ Caminho completo validado antes de existir jogo.
 |---|---|---|
 | 0 | Ambiente + teste de fumaça | `docs/setup_ambiente.md` |
 | 1 | Duas salas, quatro jogadores, presença via Socket.IO | Sem destino ainda |
-| 2 | A regra única + o efeito visível | Integração ORDS |
+| 2 | A regra única + o efeito visível | Motor de destino no Postgres |
 | 3 | **O recibo** | É aqui que se descobre se o jogo existe |
 | 4 | Encarnação e renascimento | A ideia mais forte, com o menor custo |
 | 5 | Grupos e filiação | Sem guerra ainda |
@@ -318,7 +326,7 @@ já seja o jogo. Isso não seria fracasso.
 | Loop de farm entre poucos jogadores | Média | Anti-farm no schema desde o início |
 | Semelhança com a franquia Matrix | Média | Vocabulário próprio agora — barato hoje, caro depois |
 | Escopo crescer antes da fase 3 | Média | O roteiro é a defesa; respeitar a ordem |
-| Sem comunidade para "ORDS + jogo" | Baixa | Terreno desconhecido em gamedev, dominado em banco |
+| Node é terreno novo para o desenvolvedor | Baixa | O grosso da lógica vive em SQL/PL/pgSQL, dominado; Node é só a cola |
 
 ---
 
@@ -348,5 +356,4 @@ já seja o jogo. Isso não seria fracasso.
 | `docs/mecanica_traicao_cooperacao.md` | Traição, cooperação, recibo |
 | `docs/mecanica_eras_renascimento.md` | Eras, guerra, cativeiro, renascimento |
 | `docs/setup_ambiente.md` | Passo a passo de instalação |
-| `db/destino_fatia_vertical.sql` | Schema e `pkg_destino` |
-| `db/destino_ords_setup.sql` | Módulo REST, OAuth2, privilégios |
+| `db/schema_pg.sql` | Esquema + motor de destino (funções PL/pgSQL) |

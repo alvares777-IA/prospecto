@@ -161,13 +161,13 @@ chegou a hora.
 ```
 Jogador trai
    │
-   ▼  POST /evento  (tipo=TRAICAO, contexto com dados de reconstrução)
+   ▼  registrar_evento(tipo=TRAICAO, contexto com dados de reconstrução)
 Banco grava o fato
    │
-   ├─► benefício imediato aplicado pelo servidor de zona
+   ├─► benefício imediato aplicado pelo servidor
    │
    ▼
-pkg_destino avalia regras
+o motor de destino avalia regras
    │
    ▼
 Grava consequência com dt_elegivel = agora + intervalo aleatório

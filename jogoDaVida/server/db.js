@@ -1,5 +1,5 @@
-// Acesso ao Postgres do stack (banco `jogodavida`).
-// Substitui o server/ords.js previsto na spec — não há ORDS nem token OAuth aqui.
+// Acesso ao Postgres do stack (banco `jogodavida`). O servidor fala direto
+// com o banco — não há API REST nem token no meio.
 
 import pg from 'pg';                    // pacote CommonJS: importa o default e desestrutura
 const { Pool } = pg;

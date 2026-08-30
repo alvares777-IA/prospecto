@@ -1,280 +1,155 @@
-# Setup do ambiente — Node.js + Oracle ADB
+# Setup do ambiente — Node.js + PostgreSQL
 
-Tempo estimado: 1 hora (a maior parte esperando o banco provisionar).
-Espaço em disco: ~2 GB.
-
-Comparado ao ambiente Unity, isto é trivial. Nenhuma exigência de
-hardware relevante: qualquer notebook que rode VS Code roda tudo aqui.
+O banco já existe: o jogoDaVida roda como um serviço dentro do
+`docker-compose.yml` do stack **PROSPECTO-IA**, e usa o container
+PostgreSQL desse stack (`prospecto-ia-postgres-1`), num banco dedicado
+`jogodavida`. Não há nada de nuvem para provisionar.
 
 ---
 
-## Passo 1 — Node.js
+## Passo 1 — Node.js (só para rodar fora do container)
 
-Instale a versão **LTS**.
+Dentro do Docker o Node já vem na imagem. Para rodar direto no host
+(`npm run dev`), instale a versão **LTS**.
 
 ```bash
 # Windows
 winget install OpenJS.NodeJS.LTS
-
 # macOS
 brew install node
-
-# Linux (Ubuntu/Debian) — o do apt costuma ser antigo demais
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt install -y nodejs
 ```
-
-Conferir:
 
 ```bash
 node --version    # v20 ou superior
-npm --version
 ```
-
-> Se você mexer com vários projetos Node no futuro, vale instalar via
-> `nvm` em vez do instalador direto — permite trocar de versão por
-> projeto. Para este projeto sozinho, o instalador basta.
 
 ---
 
 ## Passo 2 — VS Code e extensões
 
-1. Instale: https://code.visualstudio.com
-2. Extensões:
-   - **Oracle SQL Developer Extension for VSCode** — PL/SQL e JS no mesmo
-     editor, sem trocar de janela
+1. https://code.visualstudio.com
+2. Extensões úteis:
    - **ESLint** — pega erro de JS antes de rodar
-   - **REST Client** ou **Thunder Client** — testar o ORDS sem sair do
-     editor
+   - **REST Client** / **Thunder Client** — testar as rotas HTTP do servidor
+   - um cliente Postgres (ex.: **SQLTools + driver PostgreSQL**) para
+     inspecionar o banco `jogodavida`
 
 ---
 
 ## Passo 3 — Git e Claude Code
 
 ```bash
-# Git
-# Windows: winget install Git.Git
-# macOS:   brew install git
-# Linux:   sudo apt install git
-
 # Claude Code (instalador nativo, não precisa de Node)
 curl -fsSL https://claude.ai/install.sh | bash        # macOS/Linux/WSL
 irm https://claude.ai/install.ps1 | iex               # Windows PowerShell
 
-claude --version    # "command not found"? abra um terminal NOVO
-claude doctor       # diagnóstico
+claude doctor
 ```
 
-Docs: https://code.claude.com/docs/en/setup
-
-Coloque o `CLAUDE.md` na raiz do repositório antes da primeira sessão.
-Sem ele, o Claude Code adivinha suas convenções toda vez.
+O `CLAUDE.md` fica na raiz de `jogoDaVida/` — o Claude Code lê antes de
+qualquer coisa.
 
 ---
 
-## Passo 4 — Oracle Autonomous Database (Always Free)
+## Passo 4 — Subir o serviço
 
-1. Crie conta em https://www.oracle.com/cloud/free/
-   (pede cartão para verificação; recursos Always Free não são cobrados)
-2. **Anote sua Home Region.** Recursos Always Free só existem nela e não
-   podem ser movidos depois.
-3. Console → **Oracle Database** → **Autonomous Database** →
-   **Create Autonomous Database**
-   - Workload type: **Transaction Processing**
-   - **Marque "Always Free"**
-   - Senha do ADMIN: guarde num gerenciador de senhas
-   - Network access: **Secure access from everywhere**
-     (Always Free não suporta private endpoint / VCN)
-4. Aguarde ~3 minutos até ficar *Available*.
+O `docker-compose.yml` do PROSPECTO-IA já tem o serviço `jogodavida`
+(porta 3004, banco `jogodavida`, hot-reload).
 
-### Guardrail de custo
+```bash
+cd caminho/para/PROSPECTO-IA
+docker compose up -d --build jogodavida
+docker compose logs -f jogodavida
+```
 
-Console → Governance → **Budgets** → budget de US$ 1 com alerta.
-Se algo sair do Always Free por engano, você descobre no mesmo dia.
+O container espera o Postgres ficar saudável (`depends_on`) antes de
+subir. O banco `jogodavida` é criado pelo `postgres/init.sql` do stack
+na primeira inicialização do volume.
 
-### Evitar reclamação por inatividade
+---
 
-O banco é parado após 7 dias sem uso e pode ser **excluído
-permanentemente** após 90 dias cumulativos parado.
+## Passo 5 — Aplicar o esquema
+
+Todas as tabelas e o motor de destino (funções PL/pgSQL) estão em
+`jogoDaVida/db/schema_pg.sql`. É idempotente — pode rodar de novo.
+
+```bash
+docker exec -i prospecto-ia-postgres-1 psql -U prospecto -d jogodavida \
+  < jogoDaVida/db/schema_pg.sql
+```
+
+Conferir:
+
+```bash
+docker exec prospecto-ia-postgres-1 psql -U prospecto -d jogodavida -c "\dt" -c "\df"
+```
+
+---
+
+## Passo 6 — Rodar direto no host (opcional, iteração mais rápida)
+
+```bash
+cd jogoDaVida
+npm install
+cp .env.example .env     # ajuste DATABASE_URL para localhost:5433
+npm run dev              # nodemon, http://localhost:3004
+```
+
+`"type": "module"` no `package.json` habilita `import`/`export`.
+Dependências de servidor: `express`, `socket.io`, `dotenv`, `pg`
+(+ `passport`, `passport-google-oauth20`, `express-session`,
+`connect-pg-simple` para o login).
+
+---
+
+## Passo 7 — Teste de fumaça do motor de destino
+
+Valida o caminho inteiro pelo `psql`, sem subir o servidor:
 
 ```sql
-CREATE TABLE keepalive_log (dt TIMESTAMP);
+-- cenário mínimo
+INSERT INTO jogador (identificador, apelido, avatar_codigo, anonimo)
+  VALUES ('t1','J1','A01','N'), ('t2','J2','A02','N');
+INSERT INTO sessao (zona_id, servidor_host, codigo)
+  SELECT id, 'teste', 'TST1' FROM zona WHERE codigo = 'SALA_A';
+INSERT INTO presenca (sessao_id, jogador_id)
+  SELECT (SELECT id FROM sessao WHERE codigo='TST1'), id
+  FROM jogador WHERE identificador IN ('t1','t2');
 
-BEGIN
-  DBMS_SCHEDULER.CREATE_JOB(
-    job_name        => 'JOB_KEEPALIVE',
-    job_type        => 'PLSQL_BLOCK',
-    job_action      => 'BEGIN INSERT INTO keepalive_log VALUES (SYSTIMESTAMP); COMMIT; END;',
-    repeat_interval => 'FREQ=DAILY; BYHOUR=3',
-    enabled         => TRUE);
-END;
-/
+-- registra um evento de ajuda
+SELECT registrar_evento(gen_random_uuid(), s.id, 'AJUDA_REERGUER',
+                         j1.id, j2.id, NULL, '{"sala":"SALA_A"}'::jsonb)
+  FROM sessao s, jogador j1, jogador j2
+ WHERE s.codigo='TST1' AND j1.identificador='t1' AND j2.identificador='t2';
+
+-- o dado tem que estar gravado
+SELECT pontos, roll FROM destino_lancamento;
+SELECT * FROM destino_saldo;
 ```
+
+Se a linha de `destino_lancamento` estiver lá com o `roll`, o motor está
+funcionando.
 
 ---
 
-## Passo 5 — Schema e ORDS
+## Passo 8 — Publicar (quando for testar com outras pessoas)
 
-Console do ADB → **Database actions** → **SQL** (entra como ADMIN):
+Enquanto testa sozinho ou na rede local, `http://localhost:3004` basta.
 
-```sql
-CREATE USER game IDENTIFIED BY "TrocarEstaSenha#2026"
-  QUOTA UNLIMITED ON DATA;
+**Rápido e temporário:** um túnel (`cloudflared`, `ngrok`) expõe o
+`localhost:3004` numa URL pública para uma sessão combinada.
 
-GRANT CONNECT, RESOURCE TO game;
-GRANT CREATE VIEW, CREATE PROCEDURE, CREATE SEQUENCE TO game;
-
-BEGIN
-  ORDS_ADMIN.ENABLE_SCHEMA(
-    p_enabled             => TRUE,
-    p_schema              => 'GAME',
-    p_url_mapping_type    => 'BASE_PATH',
-    p_url_mapping_pattern => 'game',
-    p_auto_rest_auth      => TRUE);
-  COMMIT;
-END;
-/
-```
-
-Saia, entre como `GAME` e execute nesta ordem:
-
-1. `db/destino_fatia_vertical.sql`
-2. `db/destino_ords_setup.sql`
-
-Guarde o `client_id` e o `client_secret` da última query. Sua URL base
-ficará no formato:
-
-```
-https://<seu-adb>.oraclecloudapps.com/ords/game/destino/v1/
-```
+**Definitivo:** endereço próprio `jogodavida.rssc.com.br` — um
+`VirtualHost` no Apache do servidor apontando para `127.0.0.1:3004`, com
+a regra de upgrade de WebSocket (o Socket.IO precisa). Mesmo padrão dos
+outros serviços do stack; ver `prospect.conf` / `prospect-ssl.conf`.
 
 ---
 
-## Passo 6 — Esqueleto do projeto
+## Checklist
 
-```bash
-mkdir meu-jogo && cd meu-jogo
-git init
-npm init -y
-npm install express socket.io dotenv
-npm install --save-dev nodemon
-```
-
-Em `package.json`, adicione o tipo de módulo e o script de dev:
-
-```json
-{
-  "type": "module",
-  "scripts": {
-    "dev": "nodemon server/index.js",
-    "start": "node server/index.js"
-  }
-}
-```
-
-> `"type": "module"` habilita `import`/`export` em vez de `require`.
-> `nodemon` reinicia o servidor sozinho a cada arquivo salvo — é o que
-> torna a iteração rápida.
-
-### `.env` na raiz
-
-```
-ORDS_BASE=https://<seu-adb>.oraclecloudapps.com/ords/game
-ORDS_CLIENT_ID=xxxxxxxxxxxxxxxxxx
-ORDS_CLIENT_SECRET=xxxxxxxxxxxxxxxxxx
-PORT=3000
-```
-
-### `.gitignore` — antes do primeiro commit
-
-```
-node_modules/
-.env
-*.log
-```
-
-**Confira que o `.env` está ignorado antes de commitar.** Segredo em
-histórico de Git é segredo comprometido, mesmo depois de removido.
-
-```bash
-git add . && git status    # .env NÃO pode aparecer
-```
-
----
-
-## Passo 7 — Teste de fumaça
-
-Antes de escrever qualquer coisa do jogo, valide o caminho inteiro.
-
-**1. Token do ORDS**
-
-```bash
-curl -i -X POST \
-  --user "CLIENT_ID:CLIENT_SECRET" \
-  -d "grant_type=client_credentials" \
-  https://<seu-adb>.oraclecloudapps.com/ords/game/oauth/token
-```
-
-**2. Abrir uma sessão**
-
-```bash
-curl -X POST https://<seu-adb>.oraclecloudapps.com/ords/game/destino/v1/sessao \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"zona_codigo":"SALA_A","servidor_host":"local"}'
-```
-
-**3. Gravar um evento**
-
-```bash
-curl -X POST https://<seu-adb>.oraclecloudapps.com/ords/game/destino/v1/evento \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"evento_uid":"3F2504E04F8911D39A0C0305E82C3301",
-       "sessao_id":1,"tipo_evento":"AJUDA_REERGUER",
-       "ator_id":1,"alvo_id":2,
-       "dt_evento":"2026-08-18T14:30:00.000-03:00"}'
-```
-
-**4. Confirmar no banco**
-
-```sql
-SELECT * FROM evento;
-SELECT * FROM destino_lancamento;
-```
-
-Se a linha estiver lá com o `roll` gravado, o ambiente está pronto.
-
----
-
-## Passo 8 — Hospedagem (só quando for testar com outras pessoas)
-
-Enquanto você testa sozinho ou na sua rede, `localhost` basta.
-
-Para playtest com gente de fora, duas opções:
-
-**Rápida e temporária:** um túnel como `ngrok` ou `cloudflared` expõe seu
-`localhost:3000` numa URL pública em segundos. Ideal para uma sessão de
-teste combinada.
-
-**Permanente e gratuita:** o OCI Always Free inclui instâncias ARM
-(Ampere) generosas — no mesmo tenancy do banco. Servidor e banco lado a
-lado, sem custo. Vale a pena quando o protótipo estiver de pé.
-
-> Ao contrário do banco, a instância de computação ARM depende de
-> disponibilidade na região e às vezes demora a liberar. Não deixe para
-> descobrir isso na véspera do primeiro playtest.
-
----
-
-## Checklist final
-
-- [ ] `node --version` retorna v20+
-- [ ] `claude doctor` sem erros
-- [ ] ADB Always Free provisionado na Home Region correta
-- [ ] Budget de US$ 1 configurado
-- [ ] Job de keepalive criado
-- [ ] Scripts do schema executados
-- [ ] `.env` preenchido **e** listado no `.gitignore`
-- [ ] `git status` não mostra o `.env`
+- [ ] `docker compose up -d jogodavida` sobe o container
+- [ ] `schema_pg.sql` aplicado (`\dt` mostra 15 tabelas, `\df` mostra as funções)
+- [ ] `http://localhost:3004/health` responde `{"ok":true,"db":"ok"}`
 - [ ] Teste de fumaça: evento gravado com `roll` no ledger
+- [ ] `.env` (se rodar no host) preenchido e ignorado pelo Git

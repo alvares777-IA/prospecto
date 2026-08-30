@@ -79,8 +79,10 @@ Cada era exige seu próprio conjunto de assets: arquitetura, vestuário,
 objetos, som, iluminação, animação. Grécia Antiga e ano 2500 não
 compartilham nada visualmente.
 
-Para um desenvolvedor solo aprendendo Unity, isso não é uma
-funcionalidade — é o item que decide se o projeto termina.
+Para um desenvolvedor solo, isso não é uma funcionalidade — é o item
+que decide se o projeto termina. (No protótipo 2D "asset" é uma folha
+de estilo e uns SVGs, mas o custo de *conteúdo* — o que se faz em cada
+era — continua sendo 4×.)
 
 ### Três caminhos, em ordem de viabilidade
 
@@ -143,13 +145,14 @@ Duas salvaguardas obrigatórias:
 - **Saída sempre disponível.** Fuga, resgate, morte voluntária — sempre
   há um verbo que devolve agência.
 
-### Nota sobre a Steam
+### Nota sobre revisão de conteúdo
 
-Escravidão como tema em contexto histórico e narrativo é assunto
-tratado normalmente em jogos. O que atrai revisão é representação
-gratuita ou celebratória. Um sistema onde a servidão é condição a ser
-superada, com agência preservada, não é problema. Vale manter a
-descrição da loja explícita sobre o enquadramento.
+Qualquer loja onde o jogo for distribuído revisa temas sensíveis.
+Escravidão como tema em contexto histórico e narrativo é tratada
+normalmente em jogos; o que atrai revisão é representação gratuita ou
+celebratória. Um sistema onde a servidão é condição a ser superada, com
+agência preservada, não é problema. Vale manter a descrição da loja
+explícita sobre o enquadramento.
 
 ---
 

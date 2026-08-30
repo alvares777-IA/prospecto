@@ -8,8 +8,8 @@ Leia antes de propor ou escrever qualquer coisa.
 ## Contexto do desenvolvedor
 
 Sou programador **PL/SQL sênior**. Domino HTML, CSS, JavaScript, jQuery e
-Bootstrap, e desenvolvo páginas dinâmicas com `htp.p` em procedures
-Oracle. Sou **iniciante em Node.js**.
+Bootstrap, e desenvolvo páginas dinâmicas com `htp.p` em procedures no
+banco. Sou **iniciante em Node.js**.
 
 Isso significa:
 
@@ -42,8 +42,9 @@ explicadas. Suas consequências chegam depois, acompanhadas de um
 **recibo** que mostra o ato que as causou.
 
 Se o protótipo provar que os sistemas engajam, uma versão 3D com equipe
-especializada vem depois. **Todo o backend foi desenhado para sobreviver
-a essa migração sem alteração.**
+especializada vem depois. **O servidor troca apenas fatos e códigos
+opacos de efeito com o cliente — nenhuma regra vaza para fora do banco —,
+então essa migração não mexe no motor.**
 
 ### Stack
 
@@ -52,9 +53,9 @@ a essa migração sem alteração.**
 | Cliente | HTML + CSS + JavaScript puro (DOM), Bootstrap, jQuery |
 | Tempo real | Socket.IO |
 | Servidor | Node.js + Express |
-| Backend de dados | Oracle Autonomous Database (Always Free) |
-| API de dados | ORDS REST, OAuth2 client_credentials |
-| Hospedagem | OCI Always Free (instância ARM) |
+| Backend de dados | PostgreSQL (o mesmo container do stack PROSPECTO-IA, banco `jogodavida`) |
+| Acesso a dados | driver `pg` direto, de dentro do servidor Node |
+| Hospedagem | mesma máquina do stack; endereço próprio `jogodavida.rssc.com.br` quando publicar |
 
 **Deliberadamente ausentes:** Phaser, Canvas, WebGL, React, TypeScript,
 build step. Salas são `div`. Verbos são `button`. Feio é aceitável;
@@ -75,9 +76,10 @@ antes de implementar**.
 1. **O navegador nunca decide nada.** Toda validação e toda regra de
    destino ficam no servidor. O cliente envia intenção e renderiza
    resultado.
-2. **O navegador nunca fala com o ORDS.** Só o servidor Node. Qualquer
+2. **O navegador nunca fala com o banco.** Só o servidor Node. Qualquer
    credencial que chegue ao browser está vazada — o usuário abre o
-   DevTools e lê.
+   DevTools e lê. A string de conexão do Postgres vive só no `.env` do
+   servidor.
 3. **Nenhum segredo versionado.** Credenciais em `.env`, que está no
    `.gitignore`. Se você me vir prestes a commitar uma, interrompa.
 4. **Regras de destino vivem em tabela, não em código.** Balanceamento é
@@ -126,17 +128,17 @@ Diretrizes que valem como restrição técnica:
 ```
 server/
   index.js          # Express + Socket.IO, ponto de entrada
-  ords.js           # cliente ORDS: cache de token, POSTs
+  db.js             # pool pg (conexão) + ping
+  persistencia.js   # gravação: jogador, sessao, presenca; chama as funções do banco
   sala.js           # estado vivo de cada sala (em memória)
   verbos.js         # o que se pode fazer e o que cada coisa significa
-  outbox.js         # poll de /consequencias e entrega ao socket certo
+  outbox.js         # consome `consequencia` e entrega ao socket certo
 public/
   index.html
   app.js            # DOM, eventos, render
   estilo.css
 db/
-  destino_fatia_vertical.sql
-  destino_ords_setup.sql
+  schema_pg.sql     # esquema + motor de destino (funções PL/pgSQL)
 docs/
   game_design_document.md
   design_principios.md
@@ -151,25 +153,24 @@ Aponte quando vir.
 
 ---
 
-## Contrato com o backend
+## Contrato com o banco
 
-Base: `https://<adb>.oraclecloudapps.com/ords/game/destino/v1/`
+O servidor Node chama funções PL/pgSQL no Postgres (`db/schema_pg.sql`).
+Não há API REST intermediária.
 
-| Método | Rota | Uso |
-|---|---|---|
-| POST | `/sessao` | Abre instância de sala |
-| POST | `/presenca` | Jogador entrou; devolve saldo |
-| POST | `/evento` | Registra fato de gameplay |
-| POST | `/consequencias` | Consome outbox (marca entregue — não é GET) |
-| PUT | `/sessao/:id/encerrar` | Fecha instância |
+| Função | Uso |
+|---|---|
+| `registrar_evento(uid, sessao, tipo, ator, alvo, valor, contexto, dt)` | Único caminho de escrita de gameplay. Idempotente por `uid`. Devolve o `evento_id`. |
+| `consumir_consequencias(sessao_id)` | Devolve as pendentes da sessão E marca como entregues (não é leitura pura). |
+| `reconstruir_saldo(jogador_id)` | Recalcula `destino_saldo` a partir do ledger. |
 
-O servidor envia **apenas fatos**: GUID, tipo, ator, alvo, timestamp,
-contexto. Nunca pontos. Recebe **códigos opacos** de efeito
+Abrir/fechar sessão e gravar presença são feitos com `INSERT`/`UPDATE`
+diretos em `server/persistencia.js`.
+
+O servidor manipula **apenas fatos**: UUID, tipo, ator, alvo, timestamp,
+contexto. Nunca pontos. Do banco vêm **códigos opacos** de efeito
 (`LUZ_QUENTE`), mapeados no cliente para a apresentação. Assim regra nova
-não exige deploy novo.
-
-Token OAuth deve ser cacheado e renovado ~60s antes de expirar. Não pedir
-token por evento.
+é `UPDATE` em tabela, sem deploy.
 
 ---
 
@@ -178,7 +179,7 @@ token por evento.
 | Tipo | Onde vive | Frequência |
 |---|---|---|
 | **Vivo** — quem está na sala, turno, posição | Memória do processo Node | Contínuo |
-| **Persistente** — conta, destino, encarnação | Oracle | Ao fim de ações, nunca em loop |
+| **Persistente** — conta, destino, encarnação | PostgreSQL | Ao fim de ações, nunca em loop |
 
 Estado vivo some quando o processo reinicia, e isso é aceitável. Se algo
 **não** pode sumir, vai para o banco.
@@ -189,15 +190,17 @@ Estado vivo some quando o processo reinicia, e isso é aceitável. Se algo
 
 - JavaScript moderno: `const`/`let`, `async/await`, módulos ES.
   Sem callbacks aninhados, sem `var`.
-- Nomes de tabelas, colunas e packages em **português** (padrão do
+- Nomes de tabelas, colunas e funções em **português** (padrão do
   schema). Código JS em português também — é protótipo, e coerência
   interna vale mais que convenção.
 - jQuery é permitido no cliente. No servidor, dependências mínimas:
-  `express`, `socket.io`, `dotenv`. Antes de adicionar qualquer outra,
-  pergunte.
-- Toda chamada ao ORDS com timeout e tratamento de falha explícito. Se o
-  banco não responder, a sala continua funcionando e o evento entra numa
-  fila de retry — o jogo nunca trava esperando o banco.
+  `express`, `socket.io`, `dotenv`, `pg` (+ `passport`/`passport-google-oauth20`
+  e `express-session`/`connect-pg-simple` para o login). Antes de adicionar
+  qualquer outra, pergunte.
+- Toda query ao Postgres com timeout e tratamento de falha explícito. A
+  entrada na sala responde ao vivo; a gravação segue atrás e fica
+  tentando até conseguir — o jogo nunca trava esperando o banco, mas
+  nenhuma entrada fica sem registro.
 - Nada de build step, transpilador ou bundler.
 
 ---

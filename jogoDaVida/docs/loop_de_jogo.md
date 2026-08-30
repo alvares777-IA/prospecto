@@ -177,10 +177,10 @@ Precisa de:
 - Chat por sala
 - Verbos como botões, com custo de tempo
 - Um relógio que torna o tempo caro
-- Eventos indo para o Oracle
+- Eventos indo para o Postgres
 
-Tudo isso é Node, Socket.IO e DOM. Está inteiramente dentro do que você
-já sabe fazer.
+Tudo isso é Node, Socket.IO e DOM na cola, com a lógica em SQL/PL/pgSQL.
+Está inteiramente dentro do que você já sabe fazer.
 
 E significa que a **fase 3 do roteiro — o recibo — pode chegar em
 semanas**, não meses. É lá que se descobre se o jogo existe.

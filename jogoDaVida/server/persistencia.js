@@ -1,6 +1,6 @@
-// Gravação no Postgres. Equivale ao POST /sessao + POST /presenca da spec
-// (sem ORDS). Chamado pelos handlers de socket em "seguir e reconciliar":
-// a sala já respondeu ao vivo antes destas queries terminarem (docs §6).
+// Gravação no Postgres: jogador, sessao, presenca. Chamado pelos handlers
+// de socket em "seguir e reconciliar" — a sala já respondeu ao vivo antes
+// destas queries terminarem (docs §6).
 
 import os from 'node:os';
 import { pool } from './db.js';

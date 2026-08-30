@@ -1,6 +1,13 @@
 # Primeira entrega — Entrada, avatar e ingresso no mundo
 
-*Especificação para a primeira sessão de desenvolvimento.*
+*Especificação da primeira sessão de desenvolvimento. **Concluída.***
+
+> **Nota (pós-entrega):** os dados foram para o PostgreSQL do stack
+> PROSPECTO-IA em vez de um banco na nuvem com API REST — o servidor Node
+> fala direto com o banco (`db/schema_pg.sql`), sem ORDS nem token OAuth.
+> Onde este texto disser "Oracle" ou "ORDS", leia "Postgres" e "funções
+> do banco / `server/persistencia.js`". O `identificador` do jogador é o
+> nome digitado (protótipo anônimo).
 
 ---
 
@@ -24,8 +31,7 @@ meu-jogo/
     setup_ambiente.md
     primeira_entrega.md              ← este arquivo
   db/
-    destino_fatia_vertical.sql
-    destino_ords_setup.sql
+    schema_pg.sql
 ```
 
 ```bash
@@ -45,7 +51,7 @@ diff que o Claude Code produzir é visível e reversível.
 - Escolhe um avatar
 - Entra num mundo e vê quem mais está lá
 - Chat de texto funcionando na sala
-- Tudo registrado no Oracle
+- Tudo registrado no Postgres
 
 **Não fazer ainda:**
 
@@ -76,52 +82,17 @@ jogadores online ou tela de carregamento — anote e siga.
 
 ## 2. Ajuste necessário no schema
 
-O schema foi escrito para Steam. No protótipo web não há Steam ID.
+*(Feito.)* O `identificador` do jogador é o nome digitado (sem login
+nesta entrega). Foram acrescentadas as tabelas `avatar` e
+`era` (uma linha, `ATUAL`), e `avatar_codigo` no `jogador`. O esquema
+inteiro, já em PostgreSQL, está em `db/schema_pg.sql`.
 
-```sql
--- Identificador vira livre (nome digitado), não mais Steam
-ALTER TABLE jogador RENAME COLUMN steam_id TO identificador;
-ALTER TABLE jogador MODIFY (identificador VARCHAR2(64));
+A tela de entrada consome:
 
--- Avatar
-CREATE TABLE avatar (
-  codigo     VARCHAR2(30) PRIMARY KEY,
-  nome       VARCHAR2(60) NOT NULL,
-  arquivo    VARCHAR2(120) NOT NULL,   -- caminho da imagem em public/
-  ativo      CHAR(1) DEFAULT 'S' NOT NULL CHECK (ativo IN ('S','N'))
-);
+- `GET /catalogo` → avatares ativos e eras disponíveis
 
-ALTER TABLE jogador ADD (avatar_codigo VARCHAR2(30) REFERENCES avatar(codigo));
-
--- Era: existe desde já, com uma linha só
-CREATE TABLE era (
-  codigo      VARCHAR2(30) PRIMARY KEY,
-  nome        VARCHAR2(80) NOT NULL,
-  descricao   VARCHAR2(400),
-  disponivel  CHAR(1) DEFAULT 'N' NOT NULL CHECK (disponivel IN ('S','N'))
-);
-
-ALTER TABLE zona ADD (era_codigo VARCHAR2(30) REFERENCES era(codigo));
-
-INSERT INTO era VALUES ('ATUAL','Era atual',
-  'O mundo como ele e, ou como parece ser.','S');
-
-UPDATE zona SET era_codigo = 'ATUAL';
-
-INSERT INTO avatar VALUES ('A01','Figura 1','/img/av01.png','S');
-INSERT INTO avatar VALUES ('A02','Figura 2','/img/av02.png','S');
-INSERT INTO avatar VALUES ('A03','Figura 3','/img/av03.png','S');
-INSERT INTO avatar VALUES ('A04','Figura 4','/img/av04.png','S');
-
-COMMIT;
-```
-
-E um endpoint ORDS novo, no mesmo padrão do módulo existente:
-
-- `GET /destino/v1/catalogo` → avatares ativos e eras disponíveis
-
-O handler `POST /presenca` já existe e já faz o `MERGE` do jogador —
-precisa apenas passar a receber `avatar_codigo`.
+E a persistência (`server/persistencia.js`) faz o *upsert* do `jogador`
+por `identificador`, gravando o `avatar_codigo`.
 
 ---
 
@@ -146,7 +117,7 @@ com iniciais também servem. Não gaste tempo aqui.
 
 ## 4. Critério de pronto
 
-1. Abrir duas abas do navegador em `localhost:3000`
+1. Abrir duas abas do navegador em `localhost:3004`
 2. Entrar com nomes diferentes e avatares diferentes
 3. Cada aba lista o outro jogador na sala
 4. Mensagem digitada numa aba aparece na outra
@@ -168,14 +139,13 @@ Cole isto na primeira sessão:
 > entre elas, nesta ordem:
 >
 > 1. Servidor Express servindo `public/`, com `.env` carregado.
-> 2. `server/ords.js`: cliente do ORDS com cache de token OAuth2
->    client_credentials. Explique como o cache funciona.
+> 2. `server/db.js`: pool `pg` (conexão com o Postgres). `GET /catalogo`.
 > 3. Tela de entrada: nome + escolha de avatar, consumindo `/catalogo`.
 > 4. Socket.IO: entrar numa sala, listar quem está presente, sair ao
 >    desconectar. Explique como o Socket.IO gerencia salas — sou
 >    iniciante em Node.
 > 5. Chat de texto por sala.
-> 6. Persistência: `POST /sessao` e `POST /presenca` no momento certo.
+> 6. Persistência: `jogador` + `sessao` + `presenca` no momento certo.
 >
 > Não implemente destino, obstáculos, força, itens nem voz.
 > Se algo do que eu pedir aumentar o escopo, me avise antes.
@@ -192,9 +162,9 @@ Registradas de antemão para você reconhecer quando acontecer:
 **Estado vivo some no restart.** A lista de quem está na sala vive na
 memória do processo. Toda vez que o `nodemon` reiniciar, todos "saem" da
 sala. Isso é esperado — não é bug. O que não pode sumir vai para o
-Oracle.
+Postgres.
 
-**Ordem de execução não é ordem de escrita.** Chamadas ao ORDS são
+**Ordem de execução não é ordem de escrita.** As queries ao Postgres são
 assíncronas. Um jogador pode aparecer na sala do Socket.IO antes de o
 `INSERT` na `presenca` ter terminado. Decida cedo: a interface espera a
 confirmação do banco, ou segue e reconcilia depois? Para protótipo,
