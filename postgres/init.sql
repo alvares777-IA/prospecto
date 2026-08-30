@@ -5,6 +5,7 @@
 \set typebot_db    'typebot'
 \set evolution_db  'evolution'
 \set leads_db      'leads'
+\set jogodavida_db 'jogodavida'
 
 SELECT 'CREATE DATABASE ' || :'n8n_db'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'n8n_db')\gexec
@@ -18,6 +19,9 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'evolution_db')\gexec
 SELECT 'CREATE DATABASE ' || :'leads_db'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'leads_db')\gexec
 
+SELECT 'CREATE DATABASE ' || :'jogodavida_db'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'jogodavida_db')\gexec
+
 -- Garante que o usuário padrão tem acesso total a todos os bancos
 \c n8n
 GRANT ALL PRIVILEGES ON DATABASE n8n TO CURRENT_USER;
@@ -30,3 +34,6 @@ GRANT ALL PRIVILEGES ON DATABASE evolution TO CURRENT_USER;
 
 \c leads
 GRANT ALL PRIVILEGES ON DATABASE leads TO CURRENT_USER;
+
+\c jogodavida
+GRANT ALL PRIVILEGES ON DATABASE jogodavida TO CURRENT_USER;

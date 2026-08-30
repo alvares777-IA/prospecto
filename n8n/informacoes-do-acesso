@@ -12,3 +12,12 @@ Pereira
 ativar backup no crontab
 0 3 * * * /home/producao/prospecto/scripts/backup.sh >> /home/producao/prospecto/backups/backup.log 2>&1
 
+Recapitulando o que ficou resolvido nessa sessão:
+
+Causa raiz do incidente: docker compose down -v apagou os volumes do Postgres, n8n, Evolution e avatares — evite esse comando daqui pra frente (só down sem -v, ou restart).
+Recuperado: schema do banco leads, usuário admin do leads-app, workflows do n8n reimportados, instância do WhatsApp recriada e reconectada.
+Bugs corrigidos: N8N_PUSH_BACKEND → websocket, N8N_PROXY_HOPS=1 (push do editor), portas da Evolution API realinhadas no Apache (8880), expressões .item → .first() em 16 pontos dos dois workflows, corpo JSON vazio no "Enviar Mensagem", e método do Webhook de GET para POST.
+Backup automático: script pronto em scripts/backup.sh — você disse que por enquanto não vai ativar o cron, mas ele está lá pronto quando quiser.
+Ainda em aberto, caso queira retomar depois: a API key da Evolution exposta em texto puro no SalvarLID.md (e hardcoded em 3 nós do n8n) — vale trocar essa chave e mover pra uma Credential do n8n quando tiver um tempo.
+
+Qualquer coisa é só chamar.

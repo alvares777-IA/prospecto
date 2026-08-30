@@ -181,6 +181,31 @@ services:
       - prospecto-net
 
   # ─────────────────────────────────────────
+  # jogoDaVida — sub-projeto independente (DB próprio `jogodavida`, tabelas jv_)
+  # Em produção compartilha o domínio app. via ProxyPass /entrar e /jogo no Apache.
+  # ─────────────────────────────────────────
+  jogodavida:
+    build: ./jogoDaVida
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${JV_DB_NAME}
+      SESSION_SECRET: ${JV_SESSION_SECRET}
+      # dev: cookie sem Secure p/ login em http://localhost:3004.
+      # Em produção (atrás do HTTPS do Apache) usar NODE_ENV=production.
+      NODE_ENV: development
+    volumes:
+      - ./jogoDaVida/src:/app/src
+    command: ["npx", "nodemon", "src/app.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prospecto-net
+
+  # ─────────────────────────────────────────
   # Evolution API — interface com o WhatsApp
   # ─────────────────────────────────────────
   evolution-api:
