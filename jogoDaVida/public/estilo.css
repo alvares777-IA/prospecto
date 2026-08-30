@@ -1,0 +1,39 @@
+/* Estilo do protótipo. Feio é aceitável; o que importa é história e sistemas. */
+body { background: #0b1020; color: #e2e8f0; }
+code { color: #38bdf8; }
+
+.form-control {
+    background: #0d1224;
+    border-color: #1e2a45;
+    color: #e2e8f0;
+}
+.form-control:focus {
+    background: #0d1224;
+    color: #e2e8f0;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 .2rem rgba(56, 189, 248, .2);
+}
+
+.tile-avatar {
+    background: #0d1224;
+    border: 2px solid #1e2a45;
+    border-radius: 10px;
+    padding: 6px;
+    cursor: pointer;
+    line-height: 0;
+}
+.tile-avatar:hover { border-color: #334155; }
+.tile-avatar.selecionado {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, .25);
+}
+
+.chat-log {
+    height: 180px;
+    overflow-y: auto;
+    border: 1px solid #1e2a45;
+    border-radius: 8px;
+    padding: 8px;
+    background: #0d1224;
+    font-size: 14px;
+}
