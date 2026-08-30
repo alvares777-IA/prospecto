@@ -20,11 +20,21 @@ export async function avataresValidos() {
     return _avatares;
 }
 
-// Existe uma sessão aberta com este código?
-export async function salaAberta(codigo) {
+// Sessão aberta com este código, se houver: { sessaoId, estado }.
+export async function salaInfo(codigo) {
     const r = await pool.query(
-        `SELECT 1 FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
+        `SELECT id, estado FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
         [codigo],
+    );
+    return r.rows[0] ? { sessaoId: r.rows[0].id, estado: r.rows[0].estado } : null;
+}
+
+// Marca a sessão como em jogo. Devolve true se mudou (estava 'aguardando').
+export async function iniciarJogo(sessaoId) {
+    const r = await pool.query(
+        `UPDATE sessao SET estado = 'em_jogo'
+          WHERE id = $1 AND estado = 'aguardando'`,
+        [sessaoId],
     );
     return r.rowCount > 0;
 }
@@ -54,23 +64,26 @@ export async function registrarEntradaEmSala({ nome, avatar_codigo, salaCodigo, 
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sala:${salaCodigo}`]);
 
         const achou = await client.query(
-            `SELECT id, criador_id FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
+            `SELECT id, criador_id, estado FROM sessao
+              WHERE codigo = $1 AND dt_encerramento IS NULL`,
             [salaCodigo],
         );
 
-        let sessaoId, criadorId;
+        let sessaoId, criadorId, estado;
         if (achou.rows[0]) {
             sessaoId  = achou.rows[0].id;
             criadorId = achou.rows[0].criador_id;
+            estado    = achou.rows[0].estado;
         } else if (criando) {
             const nova = await client.query(
                 `INSERT INTO sessao (codigo, zona_id, servidor_host, criador_id)
                  SELECT $1, z.id, $2, $3 FROM zona z WHERE z.codigo = 'SALA_A'
-                 RETURNING id`,
+                 RETURNING id, estado`,
                 [salaCodigo, HOST, jogadorId],
             );
             sessaoId  = nova.rows[0].id;
             criadorId = jogadorId;
+            estado    = nova.rows[0].estado;
         } else {
             await client.query('ROLLBACK');
             return { erro: 'sala_inexistente' };
@@ -85,6 +98,7 @@ export async function registrarEntradaEmSala({ nome, avatar_codigo, salaCodigo, 
         return {
             jogadorId,
             sessaoId,
+            estado,
             presencaId: pres.rows[0].id,
             souCriador: criadorId === jogadorId,
         };

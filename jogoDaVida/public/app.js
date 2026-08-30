@@ -8,6 +8,10 @@ const estado = {
     avatarSelecionado: null,
     jogador: null,            // { nome, avatar_codigo }
     salaAlvo: null,           // código vindo da URL, se houver
+    codigo: null,
+    souCriador: false,
+    persistido: false,        // a minha entrada já foi gravada no banco?
+    jogoIniciado: false,
 };
 
 let socket = null;
@@ -25,6 +29,7 @@ $(async function () {
     $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
     $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
     $('#btn-copiar').on('click', copiarLink);
+    $('#btn-iniciar').on('click', () => socket && socket.emit('iniciar_jogo'));
 });
 
 async function carregarCatalogo() {
@@ -91,8 +96,11 @@ function conectar() {
         mostrar('#erro-sala', motivo || 'Não foi possível entrar.');
     });
 
-    socket.on('sala_pronta', ({ codigo, voce, lista }) => {
+    socket.on('sala_pronta', ({ codigo, souCriador, estado: est, voce, lista }) => {
         estado.codigo = codigo;
+        estado.souCriador = !!souCriador;
+        estado.persistido = false;
+        estado.jogoIniciado = est === 'em_jogo';
         history.replaceState(null, '', '/sala/' + codigo);
         const av = avatarPorCodigo(voce.avatar_codigo);
         $('#eu-nome').text(voce.nome);
@@ -100,8 +108,12 @@ function conectar() {
         $('#rotulo-codigo').text(codigo);
         trocarTela('#tela-sala');
         renderPresentes(lista);
+        atualizarInicio();
         $('#campo-msg').trigger('focus');
     });
+
+    socket.on('presenca_confirmada', () => { estado.persistido = true; atualizarInicio(); });
+    socket.on('jogo_iniciado', () => { estado.jogoIniciado = true; atualizarInicio(); });
 
     socket.on('presentes', ({ lista }) => renderPresentes(lista));
 
@@ -126,6 +138,27 @@ function renderPresentes(lista) {
         $('<img width="20" height="20" alt="">').attr('src', av ? av.arquivo : '').appendTo($li);
         $('<span>').text(p.nome + sou).appendTo($li);
         $ul.append($li);
+    }
+}
+
+// Estado do bloco "Iniciar jogo" / painel de controles.
+function atualizarInicio() {
+    if (estado.jogoIniciado) {
+        $('#area-inicio').addClass('d-none');
+        $('#painel-controles').removeClass('d-none');
+        return;
+    }
+    $('#painel-controles').addClass('d-none');
+    $('#area-inicio').removeClass('d-none');
+
+    if (estado.souCriador) {
+        $('#btn-iniciar').removeClass('d-none').prop('disabled', !estado.persistido);
+        $('#aviso-inicio').text(estado.persistido ? '' : 'salvando sua entrada…');
+    } else {
+        $('#btn-iniciar').addClass('d-none');
+        $('#aviso-inicio').text(estado.persistido
+            ? 'aguardando o anfitrião iniciar…'
+            : 'salvando sua entrada…');
     }
 }
 

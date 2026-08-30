@@ -79,22 +79,43 @@ async function avatarOk(codigo) {
     }
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Grava a entrada e FICA TENTANDO até conseguir (docs: "não pode ter falhas").
+// A sala já respondeu ao vivo; isto só destrava o "Iniciar jogo".
+async function gravarEntradaComRetry(socket, codigo, jogador, criando) {
+    const espera = [1000, 2000, 4000, 8000];
+    for (let i = 0; socket.connected; i++) {
+        try {
+            const r = await persistencia.registrarEntradaEmSala({ ...jogador, salaCodigo: codigo, criando });
+            if (r.erro) { console.warn(`[persistencia] ${codigo}: ${r.erro}`); return; }
+            sala.anotarPresenca(socket.id, r.presencaId);
+            sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
+            sala.marcarEstado(codigo, r.estado);
+            socket.emit('presenca_confirmada', { codigo });
+            return;
+        } catch (err) {
+            console.warn(`[persistencia] ${codigo}: entrada não gravada (tentativa ${i + 1}), repetindo:`, err.message);
+            await sleep(espera[Math.min(i, espera.length - 1)]);
+        }
+    }
+}
+
 // Coloca o socket na sala (estado vivo + broadcast) e grava atrás.
-function ingressar(socket, codigo, jogador, { criando, souCriador }) {
+function ingressar(socket, codigo, jogador, { criando, souCriador, estado }) {
     socket.join(codigo);
-    sala.entrar(codigo, socket.id, jogador);
+    sala.entrar(codigo, socket.id, jogador, estado);
     socket.emit('sala_pronta', {
         codigo,
         souCriador,
+        estado,
         voce: { socketId: socket.id, ...jogador },
         lista: sala.presentes(codigo),
     });
     io.to(codigo).emit('presentes', { codigo, lista: sala.presentes(codigo) });
     console.log(`[io] ${jogador.nome} ${criando ? 'criou' : 'entrou em'} ${codigo} (${sala.presentes(codigo).length})`);
 
-    persistencia.registrarEntradaEmSala({ ...jogador, salaCodigo: codigo, criando })
-        .then(r => { if (!r.erro) sala.anotarPresenca(socket.id, r.presencaId); })
-        .catch(err => console.warn('[persistencia] entrada não gravada:', err.message));
+    gravarEntradaComRetry(socket, codigo, jogador, criando);
 }
 
 io.on('connection', (socket) => {
@@ -103,7 +124,7 @@ io.on('connection', (socket) => {
     socket.on('criar_sala', async (dados) => {
         const jogador = lerJogador(dados);
         if (!jogador || !(await avatarOk(jogador.avatar_codigo))) return;
-        ingressar(socket, gerarCodigo(), jogador, { criando: true, souCriador: true });
+        ingressar(socket, gerarCodigo(), jogador, { criando: true, souCriador: true, estado: 'aguardando' });
     });
 
     socket.on('entrar_sala', async (dados) => {
@@ -114,10 +135,31 @@ io.on('connection', (socket) => {
         if (!codigo) return socket.emit('erro_sala', { motivo: 'Digite o código da sala.' });
 
         // Aceita se a sala está viva na memória; senão confirma no banco.
-        if (!sala.existe(codigo) && !(await persistencia.salaAberta(codigo))) {
-            return socket.emit('erro_sala', { motivo: 'Sala não encontrada.' });
+        let estado = sala.metaDe(codigo)?.estado;
+        if (estado === undefined) {
+            const info = await persistencia.salaInfo(codigo);
+            if (!info) return socket.emit('erro_sala', { motivo: 'Sala não encontrada.' });
+            estado = info.estado;
         }
-        ingressar(socket, codigo, jogador, { criando: false, souCriador: false });
+        ingressar(socket, codigo, jogador, { criando: false, souCriador: false, estado });
+    });
+
+    socket.on('iniciar_jogo', async () => {
+        const codigo = sala.salaDe(socket.id);
+        if (!codigo || !sala.ehCriador(socket.id)) return;          // só o criador
+        if (sala.presencaDe(socket.id) == null) return;             // presença ainda não confirmada
+        const m = sala.metaDe(codigo);
+        if (!m || m.estado === 'em_jogo' || !m.sessaoId) return;
+
+        try {
+            await persistencia.iniciarJogo(m.sessaoId);
+        } catch (err) {
+            console.warn('[persistencia] iniciarJogo falhou:', err.message);
+            return socket.emit('erro_sala', { motivo: 'Não consegui iniciar agora. Tente de novo.' });
+        }
+        sala.marcarEstado(codigo, 'em_jogo');
+        io.to(codigo).emit('jogo_iniciado', { codigo });
+        console.log(`[io] jogo iniciado em ${codigo}`);
     });
 
     socket.on('mensagem', (dados) => {

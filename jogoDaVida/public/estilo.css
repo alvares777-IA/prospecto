@@ -40,6 +40,21 @@ code { color: #38bdf8; }
 
 #rotulo-codigo { letter-spacing: 2px; }
 
+.painel {
+    border: 1px solid #1e2a45;
+    border-radius: 8px;
+    padding: 12px;
+    background: #0d1224;
+}
+.painel-titulo {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: #94a3b8;
+    margin-bottom: 6px;
+}
+
 .divisor {
     display: flex;
     align-items: center;

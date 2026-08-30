@@ -3,16 +3,43 @@
 // e da coluna sessao.codigo). Reinício do servidor = salas vazias; o que não
 // pode sumir está no Postgres (server/persistencia.js).
 
-// codigo (string) -> Map<socketId, { nome, avatar_codigo, presencaId }>
+// codigo -> Map<socketId, { nome, avatar_codigo, presencaId }>
 const salas = new Map();
+// codigo -> { sessaoId, criadorSocketId, estado }
+const meta = new Map();
 
-export function entrar(codigo, socketId, jogador) {
-    if (!salas.has(codigo)) salas.set(codigo, new Map());
+export function entrar(codigo, socketId, jogador, estado = 'aguardando') {
+    if (!salas.has(codigo)) {
+        salas.set(codigo, new Map());
+        meta.set(codigo, { sessaoId: null, criadorSocketId: null, estado });
+    }
     salas.get(codigo).set(socketId, { ...jogador, presencaId: null });
 }
 
 export function existe(codigo) {
     return salas.has(codigo);
+}
+
+export function metaDe(codigo) {
+    return meta.get(codigo) || null;
+}
+
+// Chamado quando a gravação confirma: guarda o id da sessão e quem é o criador.
+export function anotarSala(codigo, { sessaoId, souCriador, socketId }) {
+    const m = meta.get(codigo);
+    if (!m) return;
+    if (sessaoId) m.sessaoId = sessaoId;
+    if (souCriador && socketId) m.criadorSocketId = socketId;
+}
+
+export function marcarEstado(codigo, estado) {
+    const m = meta.get(codigo);
+    if (m) m.estado = estado;
+}
+
+export function ehCriador(socketId) {
+    const codigo = salaDe(socketId);
+    return !!codigo && meta.get(codigo)?.criadorSocketId === socketId;
 }
 
 // A gravação no banco é assíncrona; quando o id da presença chega, anota aqui
@@ -24,7 +51,14 @@ export function anotarPresenca(socketId, presencaId) {
     }
 }
 
-// De qual sala é este socket.
+export function presencaDe(socketId) {
+    for (const membros of salas.values()) {
+        const m = membros.get(socketId);
+        if (m) return m.presencaId;
+    }
+    return null;
+}
+
 export function salaDe(socketId) {
     for (const [codigo, membros] of salas) {
         if (membros.has(socketId)) return codigo;
@@ -38,7 +72,7 @@ export function sair(socketId) {
         const membro = membros.get(socketId);
         if (membro) {
             membros.delete(socketId);
-            if (membros.size === 0) salas.delete(codigo);
+            if (membros.size === 0) { salas.delete(codigo); meta.delete(codigo); }
             return { codigo, membro };
         }
     }
