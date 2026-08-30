@@ -1,20 +1,30 @@
 // Cliente.
-// Passo 3: tela de entrada — nome + escolha de avatar, consumindo /catalogo.
-// Passo 4: ao "Entrar", conecta ao Socket.IO, entra na sala e mostra os presentes.
-// O navegador só coleta intenção e renderiza resultado. Nada de regra de jogo aqui.
+// Fluxo: nome + figura  ->  criar sala / entrar em sala  ->  dentro da sala.
+// Se a URL for /sala/CODIGO, pula a escolha e entra direto naquela sala.
+// O navegador só coleta intenção e renderiza resultado. Nada de regra aqui.
 
 const estado = {
     catalogo: { avatares: [], eras: [] },
     avatarSelecionado: null,
     jogador: null,            // { nome, avatar_codigo }
+    salaAlvo: null,           // código vindo da URL, se houver
 };
 
 let socket = null;
 
 $(async function () {
+    // /sala/ABCDE  ->  entra direto nessa sala depois do nome+figura
+    const m = location.pathname.match(/^\/sala\/([A-Za-z0-9]{1,12})$/);
+    if (m) estado.salaAlvo = m[1].toUpperCase();
+
     await carregarCatalogo();
-    $('#btn-entrar').on('click', entrar);
-    $('#campo-nome').on('keydown', (e) => { if (e.key === 'Enter') entrar(); });
+
+    $('#btn-continuar').on('click', continuar);
+    $('#campo-nome').on('keydown', e => { if (e.key === 'Enter') continuar(); });
+    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', estado.jogador); });
+    $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
+    $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
+    $('#btn-copiar').on('click', copiarLink);
 });
 
 async function carregarCatalogo() {
@@ -26,7 +36,6 @@ async function carregarCatalogo() {
         $('#grade-avatares').html('<span class="text-danger small">falha ao carregar o catálogo</span>');
         return;
     }
-
     $('#rotulo-era').text(estado.catalogo.eras[0]?.nome || '—');
 
     const $grade = $('#grade-avatares').empty();
@@ -46,40 +55,58 @@ function selecionarAvatar(codigo) {
     $(`#grade-avatares .tile-avatar[data-codigo="${codigo}"]`).addClass('selecionado');
 }
 
-function entrar() {
+// Passo 1 -> valida nome/figura e decide a próxima tela.
+function continuar() {
     const nome = $('#campo-nome').val().trim();
-    const erro = validar(nome, estado.avatarSelecionado);
-    if (erro) return mostrarErro(erro);
-
+    if (nome.length < 2) return mostrar('#erro-entrada', 'Digite um nome (ao menos 2 letras).');
+    if (!estado.avatarSelecionado) return mostrar('#erro-entrada', 'Escolha uma figura.');
     estado.jogador = { nome, avatar_codigo: estado.avatarSelecionado };
 
-    const av = avatarPorCodigo(estado.jogador.avatar_codigo);
-    $('#eu-nome').text(estado.jogador.nome);
-    $('#eu-avatar').attr('src', av ? av.arquivo : '').attr('alt', av ? av.nome : '');
-    $('#tela-entrada').addClass('d-none');
-    $('#tela-sala').removeClass('d-none');
-
-    conectarSala();
+    if (estado.salaAlvo) {
+        conectar();
+        socket.emit('entrar_sala', { ...estado.jogador, codigo: estado.salaAlvo });
+    } else {
+        trocarTela('#tela-sala-escolha');
+        $('#campo-codigo').trigger('focus');
+    }
 }
 
-function conectarSala() {
-    socket = io();                                   // conecta ao host que serviu a página
+function entrarNaSalaDigitada() {
+    const codigo = $('#campo-codigo').val().trim().toUpperCase();
+    if (!codigo) return mostrar('#erro-sala', 'Digite o código da sala.');
+    conectar();
+    socket.emit('entrar_sala', { ...estado.jogador, codigo });
+}
 
-    socket.on('connect', () => {
-        $('#status-conexao').text('conectado');
-        socket.emit('entrar', estado.jogador);       // manda a intenção; o servidor valida
+// Cria o socket e registra os ouvintes uma vez.
+function conectar() {
+    if (socket) return;
+    socket = io();
+
+    socket.on('connect', () => $('#status-conexao').text('conectado'));
+    socket.on('disconnect', () => $('#status-conexao').text('desconectado'));
+
+    socket.on('erro_sala', ({ motivo }) => {
+        trocarTela('#tela-sala-escolha');
+        mostrar('#erro-sala', motivo || 'Não foi possível entrar.');
     });
 
-    socket.on('disconnect', () => {
-        $('#status-conexao').text('desconectado');
+    socket.on('sala_pronta', ({ codigo, voce, lista }) => {
+        estado.codigo = codigo;
+        history.replaceState(null, '', '/sala/' + codigo);
+        const av = avatarPorCodigo(voce.avatar_codigo);
+        $('#eu-nome').text(voce.nome);
+        $('#eu-avatar').attr('src', av ? av.arquivo : '').attr('alt', av ? av.nome : '');
+        $('#rotulo-codigo').text(codigo);
+        trocarTela('#tela-sala');
+        renderPresentes(lista);
+        $('#campo-msg').trigger('focus');
     });
 
-    // Lista completa dos presentes — reenviada pelo servidor a cada entrada/saída.
     socket.on('presentes', ({ lista }) => renderPresentes(lista));
 
-    // Chat da sala.
-    socket.on('mensagem', (m) => renderMensagem(m));
-    $('#form-msg').on('submit', (e) => {
+    socket.on('mensagem', m => renderMensagem(m));
+    $('#form-msg').on('submit', e => {
         e.preventDefault();
         const texto = $('#campo-msg').val().trim();
         if (!texto) return;
@@ -88,41 +115,47 @@ function conectarSala() {
     });
 }
 
-function renderMensagem(m) {
-    const hora = new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const $linha = $('<div class="mb-1">');
-    $('<span class="text-secondary small">').text(`[${hora}] `).appendTo($linha);
-    $('<strong>').text(m.de + ': ').appendTo($linha);
-    $('<span>').text(m.texto).appendTo($linha);          // .text() escapa
-    const chat = $('#chat').append($linha)[0];
-    chat.scrollTop = chat.scrollHeight;
-}
-
 function renderPresentes(lista) {
+    if (!lista) return;
     $('#contador-presentes').text(lista.length);
     const $ul = $('#lista-presentes').empty();
     for (const p of lista) {
         const av = avatarPorCodigo(p.avatar_codigo);
         const sou = socket && p.socketId === socket.id ? ' (você)' : '';
         const $li = $('<li class="d-flex align-items-center gap-2 mb-1">');
-        $('<img width="20" height="20" alt="">')
-            .attr('src', av ? av.arquivo : '')
-            .appendTo($li);
-        $('<span>').text(p.nome + sou).appendTo($li);   // .text() escapa o nome
+        $('<img width="20" height="20" alt="">').attr('src', av ? av.arquivo : '').appendTo($li);
+        $('<span>').text(p.nome + sou).appendTo($li);
         $ul.append($li);
     }
+}
+
+function renderMensagem(m) {
+    const hora = new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const $linha = $('<div class="mb-1">');
+    $('<span class="text-secondary small">').text(`[${hora}] `).appendTo($linha);
+    $('<strong>').text(m.de + ': ').appendTo($linha);
+    $('<span>').text(m.texto).appendTo($linha);
+    const chat = $('#chat').append($linha)[0];
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function copiarLink() {
+    const url = location.origin + '/sala/' + (estado.codigo || '');
+    navigator.clipboard?.writeText(url).then(
+        () => { $('#btn-copiar').text('copiado!'); setTimeout(() => $('#btn-copiar').text('copiar link'), 1500); },
+        () => { window.prompt('Copie o link da sala:', url); }
+    );
 }
 
 function avatarPorCodigo(codigo) {
     return estado.catalogo.avatares.find(a => a.codigo === codigo) || null;
 }
 
-function validar(nome, avatar) {
-    if (nome.length < 2) return 'Digite um nome (ao menos 2 letras).';
-    if (!avatar) return 'Escolha uma figura.';
-    return null;
+function trocarTela(sel) {
+    $('#tela-entrada, #tela-sala-escolha, #tela-sala').addClass('d-none');
+    $(sel).removeClass('d-none');
 }
 
-function mostrarErro(msg) {
-    $('#erro-entrada').text(msg).removeClass('d-none');
+function mostrar(sel, msg) {
+    $(sel).text(msg).removeClass('d-none');
 }

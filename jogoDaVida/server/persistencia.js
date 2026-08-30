@@ -1,6 +1,6 @@
-// Gravação no Postgres: jogador, sessao, presenca. Chamado pelos handlers
-// de socket em "seguir e reconciliar" — a sala já respondeu ao vivo antes
-// destas queries terminarem (docs §6).
+// Gravação no Postgres: jogador, sessao (uma por sala/código), presenca.
+// Chamado pelos handlers de socket em "seguir e reconciliar" — a sala já
+// respondeu ao vivo antes destas queries terminarem (docs §6).
 
 import os from 'node:os';
 import { pool } from './db.js';
@@ -9,8 +9,8 @@ import { pool } from './db.js';
 // estável entre reinícios do nodemon; muda só quando o container é recriado.
 const HOST = process.env.HOSTNAME || os.hostname();
 
-// Códigos de avatar válidos — carregados uma vez, em cache. Usado para validar
-// no servidor (o navegador não decide nada).
+// Códigos de avatar válidos — carregados uma vez, em cache. Validação no
+// servidor (o navegador não decide nada).
 let _avatares = null;
 export async function avataresValidos() {
     if (!_avatares) {
@@ -20,38 +20,21 @@ export async function avataresValidos() {
     return _avatares;
 }
 
-// get-or-create da sessão aberta desta zona neste processo.
-async function sessaoAberta(client, zonaCodigo) {
-    // Serializa o get-or-create entre entradas concorrentes — 4 jogadores podem
-    // entrar quase ao mesmo tempo e todos verem "nenhuma sessão aberta". O lock
-    // é por (zona|host) e some no fim da transação.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${zonaCodigo}|${HOST}`]);
-
-    const existe = await client.query(
-        `SELECT s.id
-           FROM sessao s
-           JOIN zona z ON z.id = s.zona_id
-          WHERE z.codigo = $1
-            AND s.servidor_host = $2
-            AND s.dt_encerramento IS NULL
-          ORDER BY s.id DESC
-          LIMIT 1`,
-        [zonaCodigo, HOST],
+// Existe uma sessão aberta com este código?
+export async function salaAberta(codigo) {
+    const r = await pool.query(
+        `SELECT 1 FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
+        [codigo],
     );
-    if (existe.rows[0]) return existe.rows[0].id;
-
-    const criada = await client.query(
-        `INSERT INTO sessao (zona_id, servidor_host)
-         SELECT id, $2 FROM zona WHERE codigo = $1
-         RETURNING id`,
-        [zonaCodigo, HOST],
-    );
-    return criada.rows[0].id;
+    return r.rowCount > 0;
 }
 
-// Jogador (upsert por identificador) + sessão + linha de presença.
-// Tudo numa transação: ou grava a entrada inteira, ou nada.
-export async function registrarEntrada({ nome, avatar_codigo, salaCodigo }) {
+// Entrada numa sala, numa transação:
+//   - upsert do jogador por identificador
+//   - sessão da sala: reusa a aberta com esse código, ou cria (se `criando`)
+//   - linha de presença
+// Devolve { jogadorId, sessaoId, presencaId, souCriador } ou { erro }.
+export async function registrarEntradaEmSala({ nome, avatar_codigo, salaCodigo, criando }) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -67,7 +50,31 @@ export async function registrarEntrada({ nome, avatar_codigo, salaCodigo }) {
         );
         const jogadorId = jog.rows[0].id;
 
-        const sessaoId = await sessaoAberta(client, salaCodigo);
+        // serializa o get-or-create da sessão entre entradas concorrentes
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sala:${salaCodigo}`]);
+
+        const achou = await client.query(
+            `SELECT id, criador_id FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
+            [salaCodigo],
+        );
+
+        let sessaoId, criadorId;
+        if (achou.rows[0]) {
+            sessaoId  = achou.rows[0].id;
+            criadorId = achou.rows[0].criador_id;
+        } else if (criando) {
+            const nova = await client.query(
+                `INSERT INTO sessao (codigo, zona_id, servidor_host, criador_id)
+                 SELECT $1, z.id, $2, $3 FROM zona z WHERE z.codigo = 'SALA_A'
+                 RETURNING id`,
+                [salaCodigo, HOST, jogadorId],
+            );
+            sessaoId  = nova.rows[0].id;
+            criadorId = jogadorId;
+        } else {
+            await client.query('ROLLBACK');
+            return { erro: 'sala_inexistente' };
+        }
 
         const pres = await client.query(
             `INSERT INTO presenca (sessao_id, jogador_id) VALUES ($1, $2) RETURNING id`,
@@ -75,7 +82,12 @@ export async function registrarEntrada({ nome, avatar_codigo, salaCodigo }) {
         );
 
         await client.query('COMMIT');
-        return { jogadorId, sessaoId, presencaId: pres.rows[0].id };
+        return {
+            jogadorId,
+            sessaoId,
+            presencaId: pres.rows[0].id,
+            souCriador: criadorId === jogadorId,
+        };
     } catch (err) {
         await client.query('ROLLBACK');
         throw err;

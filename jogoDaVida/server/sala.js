@@ -1,14 +1,18 @@
 // Estado vivo das salas — vive SÓ na memória deste processo.
-// Reinício do servidor = todas as salas vazias, todo mundo reconecta. Isso é
-// esperado, não é bug (docs/primeira_entrega.md §6). O que não pode sumir vai
-// para o Postgres (server/persistencia.js).
+// Cada sala é identificada por um código curto (o mesmo da URL /sala/CODIGO
+// e da coluna sessao.codigo). Reinício do servidor = salas vazias; o que não
+// pode sumir está no Postgres (server/persistencia.js).
 
-// sala (string) -> Map<socketId, { nome, avatar_codigo, presencaId }>
+// codigo (string) -> Map<socketId, { nome, avatar_codigo, presencaId }>
 const salas = new Map();
 
-export function entrar(sala, socketId, jogador) {
-    if (!salas.has(sala)) salas.set(sala, new Map());
-    salas.get(sala).set(socketId, { ...jogador, presencaId: null });
+export function entrar(codigo, socketId, jogador) {
+    if (!salas.has(codigo)) salas.set(codigo, new Map());
+    salas.get(codigo).set(socketId, { ...jogador, presencaId: null });
+}
+
+export function existe(codigo) {
+    return salas.has(codigo);
 }
 
 // A gravação no banco é assíncrona; quando o id da presença chega, anota aqui
@@ -20,23 +24,30 @@ export function anotarPresenca(socketId, presencaId) {
     }
 }
 
-// Não recebemos a sala — o socket pode estar em qualquer uma. São poucas e
-// pequenas, varrer é barato. Devolve { sala, membro } de onde saiu.
+// De qual sala é este socket.
+export function salaDe(socketId) {
+    for (const [codigo, membros] of salas) {
+        if (membros.has(socketId)) return codigo;
+    }
+    return null;
+}
+
+// Devolve { codigo, membro } de onde o socket saiu.
 export function sair(socketId) {
-    for (const [sala, membros] of salas) {
+    for (const [codigo, membros] of salas) {
         const membro = membros.get(socketId);
         if (membro) {
             membros.delete(socketId);
-            if (membros.size === 0) salas.delete(sala);
-            return { sala, membro };
+            if (membros.size === 0) salas.delete(codigo);
+            return { codigo, membro };
         }
     }
     return null;
 }
 
 // Lista para o cliente — sem ids internos (presencaId não sai daqui).
-export function presentes(sala) {
-    const membros = salas.get(sala);
+export function presentes(codigo) {
+    const membros = salas.get(codigo);
     if (!membros) return [];
     return [...membros.entries()].map(([socketId, m]) => ({
         socketId,
