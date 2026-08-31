@@ -244,8 +244,7 @@ function conectar() {
         for (const p of estado.jogo.niveisLista) {
             if (p.porta != null) estado.jogo.portas[p.socketId] = p.porta;
         }
-        renderHall();
-        renderJogadores();
+        renderRosters();
     });
     socket.on('chat_liberado', () => {
         if (estado.jogo.chatLiberado) return;
@@ -261,24 +260,24 @@ function conectar() {
     });
     socket.on('porta_alcancada', ({ jogador, socketId, porta }) => {
         estado.jogo.portas[socketId] = porta;
-        renderJogadores();
+        renderRosters();
         feed(`${jogador} chegou na porta ${porta}`);
     });
     socket.on('pediu_ajuda', ({ jogador, socketId, porta }) => {
         estado.jogo.pedidos[socketId] = { jogador, porta };
         estado.jogo.recusei.delete(socketId);
-        renderJogadores();
+        renderRosters();
         feed(`${jogador} pediu ajuda na porta ${porta}`);
     });
     socket.on('ajuda_resolvida', ({ socketId }) => {
         delete estado.jogo.pedidos[socketId];
         estado.jogo.recusei.delete(socketId);
-        renderJogadores();
+        renderRosters();
     });
     socket.on('ofereceu_ajuda', ({ de, para }) => feed(`${de} ofereceu ajuda a ${para}`));
     socket.on('recusou_ajuda', ({ de, para, socketId, alvoSocketId }) => {
         feed(`${de} não quis ajudar ${para}`);
-        if (socketId === socket.id) { estado.jogo.recusei.add(alvoSocketId); renderJogadores(); }
+        if (socketId === socket.id) { estado.jogo.recusei.add(alvoSocketId); renderRosters(); }
     });
     socket.on('ajudou', ({ de, para }) => feed(`${de} deu a resposta a ${para}`));
     socket.on('spoiler_chat', ({ jogador, penalidade }) => {
@@ -351,12 +350,31 @@ function atualizarChat() {
     $('#chat-fechado').toggleClass('d-none', aberto);
 }
 
+function renderRosters() {
+    renderHall();
+    renderJogadores();
+}
+
 function renderHall() {
     const $ul = $('#hall-jogadores').empty();
     for (const p of estado.jogo.niveisLista) {
         const sou = socket && p.socketId === socket.id;
         const nivel = p.terminou ? 'concluiu' : (p.porta != null ? `nível ${p.porta}` : '—');
-        $('<li>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}`).appendTo($ul);
+        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
+        $('<span>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}`).appendTo($li);
+
+        const pediu = !sou && estado.jogo.pedidos[p.socketId] && !estado.jogo.recusei.has(p.socketId);
+        if (pediu) {
+            $('<button class="btn btn-sm btn-outline-info py-0">')
+                .text('Oferecer ajuda')
+                .on('click', () => socket.emit('oferecer_ajuda', { paraSocketId: p.socketId }))
+                .appendTo($li);
+            $('<button class="btn btn-sm btn-outline-danger py-0">')
+                .text('Não ajudar (+2%)')
+                .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId }))
+                .appendTo($li);
+        }
+        $ul.append($li);
     }
 }
 
@@ -402,7 +420,7 @@ function renderPresentes(lista) {
         $('<span>').text(p.nome + sou).appendTo($li);
         $ul.append($li);
     }
-    renderJogadores();
+    renderRosters();
 }
 
 // Estado do bloco "Iniciar jogo" / painel de controles.
