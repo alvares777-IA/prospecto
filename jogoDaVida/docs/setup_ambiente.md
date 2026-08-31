@@ -139,10 +139,11 @@ Enquanto testa sozinho ou na rede local, `http://localhost:3004` basta.
 **Rápido e temporário:** um túnel (`cloudflared`, `ngrok`) expõe o
 `localhost:3004` numa URL pública para uma sessão combinada.
 
-**Definitivo:** endereço próprio `jogodavida.rssc.com.br` — um
-`VirtualHost` no Apache do servidor apontando para `127.0.0.1:3004`, com
-a regra de upgrade de WebSocket (o Socket.IO precisa). Mesmo padrão dos
-outros serviços do stack; ver `prospect.conf` / `prospect-ssl.conf`.
+**Definitivo:** endereço próprio `jogodavida.rssc.com.br`. O VirtualHost
+já está pronto em `jogoDaVida/deploy/jogodavida.conf` (proxy para
+`127.0.0.1:3004` + upgrade de WebSocket). O cabeçalho do arquivo tem o
+passo a passo: registro A no DNS, `certbot`, e as variáveis de produção
+(`NODE_ENV=production`, `JV_APP_URL=https://jogodavida.rssc.com.br`).
 
 ---
 
