@@ -12,3 +12,6 @@ node_modules/
 
 # Backups gerados por scripts/backup.sh (contém dados reais)
 backups/
+
+# copia servida dos enigmas interativos (gerada pelo importar_enigmas)
+jogoDaVida/public/enigmas/

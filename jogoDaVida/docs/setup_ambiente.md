@@ -84,6 +84,25 @@ Conferir:
 docker exec prospecto-ia-postgres-1 psql -U prospecto -d jogodavida -c "\dt" -c "\df"
 ```
 
+### Enigmas
+
+O catálogo (`enigma`) vem de `db/enigmas/` — `texto.csv` (100) + as
+páginas interativas `enigma-###.html` (100). Carregar/atualizar:
+
+```bash
+# páginas servidas
+cp jogoDaVida/db/enigmas/*.html jogoDaVida/db/enigmas/game.js \
+   jogoDaVida/db/enigmas/style.css jogoDaVida/public/enigmas/
+
+# importa para o banco (roda dentro do container)
+docker cp jogoDaVida/db/enigmas prospecto-ia-jogodavida-1:/tmp/enigmas
+docker exec -i prospecto-ia-jogodavida-1 node --input-type=module - /tmp/enigmas \
+  < jogoDaVida/db/importar_enigmas.mjs
+```
+
+Sequência: intercala `texto` e `html` (ordem 1,2,3,4… = csv#1, html#1,
+csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
+
 ---
 
 ## Passo 6 — Rodar direto no host (opcional, iteração mais rápida)

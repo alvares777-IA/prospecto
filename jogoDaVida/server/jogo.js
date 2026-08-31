@@ -13,10 +13,12 @@ export async function iniciarSala(sessaoId) {
         `SELECT param('qtd_enigmas', NULL, $1) AS q`, [sessaoId],
     )).rows[0].q) || 4;
 
+    // Sequência: na ordem do catálogo (não aleatório).
     await pool.query(
         `INSERT INTO sessao_enigma (sessao_id, ordem, enigma_id)
-         SELECT $1, row_number() OVER (), id
-           FROM (SELECT id FROM enigma WHERE ativo = 'S' ORDER BY random() LIMIT $2) t
+         SELECT $1, row_number() OVER (ORDER BY t.ordem NULLS LAST, t.id), t.id
+           FROM (SELECT id, ordem FROM enigma WHERE ativo = 'S'
+                  ORDER BY ordem NULLS LAST, id LIMIT $2) t
           WHERE NOT EXISTS (SELECT 1 FROM sessao_enigma WHERE sessao_id = $1)`,
         [sessaoId, qtd],
     );
@@ -45,7 +47,7 @@ export async function estado(sessaoId, jogadorId) {
                 (SELECT count(*)::int FROM sessao_enigma WHERE sessao_id = pj.sessao_id) AS total,
                 param('decaimento_min', se.enigma_id, pj.sessao_id) AS decaimento_min,
                 param('chat_aberto',    se.enigma_id, pj.sessao_id) AS chat_aberto,
-                e.id AS enigma_id, e.pergunta
+                e.id AS enigma_id, e.pergunta, e.tipo, e.nivel, e.arquivo
            FROM partida_jogador pj
            LEFT JOIN sessao_enigma se ON se.sessao_id = pj.sessao_id AND se.ordem = pj.porta
            LEFT JOIN enigma e ON e.id = se.enigma_id
@@ -66,6 +68,9 @@ export async function estado(sessaoId, jogadorId) {
         terminou,
         esgotado: Number(p.energia) <= 0 && !terminou,
         pergunta: terminou ? null : p.pergunta,
+        tipo: terminou ? null : p.tipo,
+        nivel: terminou ? null : p.nivel,
+        arquivo: terminou ? null : p.arquivo,
     };
 }
 
@@ -278,4 +283,8 @@ export async function penalizarSpoiler(sessaoId, texto) {
     return { acertou: true, penalidade: pen, jogadores };
 }
 
-const norm = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+// Normaliza p/ comparar respostas: sem acento, minúsculas, só letras e dígitos.
+// (Mesma regra do game.js das páginas interativas.)
+const norm = s => String(s ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');

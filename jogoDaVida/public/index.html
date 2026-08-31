@@ -128,11 +128,13 @@
         <div id="jogo-enigma" class="d-none">
           <p class="mb-1"><span id="jogo-porta" class="text-secondary small"></span></p>
           <p class="h5" id="jogo-pergunta">…</p>
+          <iframe id="jogo-iframe" class="d-none w-100 mb-2"
+                  style="height:540px;border:1px solid #1e2a45;border-radius:10px;background:#0f172a"></iframe>
           <form id="jogo-form" class="d-flex flex-wrap gap-2 mb-2">
             <input id="jogo-resposta" class="form-control" style="max-width:180px" autocomplete="off" placeholder="sua resposta">
             <button class="btn btn-primary" type="submit">Responder</button>
-            <button id="jogo-pedir" class="btn btn-outline-warning" type="button">Pedir ajuda (-2%)</button>
           </form>
+          <button id="jogo-pedir" class="btn btn-outline-warning btn-sm mb-2" type="button">Pedir ajuda (-2%)</button>
           <div id="jogo-aviso" class="small"></div>
         </div>
 

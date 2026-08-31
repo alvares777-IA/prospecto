@@ -228,14 +228,22 @@ CREATE INDEX IF NOT EXISTS ix_conseq_pendente ON consequencia (sessao_id) WHERE 
 -- ---------------------------------------------------------------------
 
 -- Catálogo de enigmas. Cada um pode sobrepor parâmetros (ver `parametro`).
+--   tipo 'texto'  -> pergunta + resposta, resolvido no campo do jogo
+--   tipo 'html'   -> página interativa em public/enigmas/<arquivo>; a página
+--                    valida e avisa o jogo por postMessage (resposta = data-answer)
+-- Carregados por db/importar_enigmas.mjs a partir de db/enigmas/.
 CREATE TABLE IF NOT EXISTS enigma (
   id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  tipo      VARCHAR(20)  NOT NULL DEFAULT 'aritmetica',
+  origem    VARCHAR(80)  UNIQUE,             -- chave estável de importação ('csv:1', 'html:enigma-001')
+  tipo      VARCHAR(20)  NOT NULL DEFAULT 'texto',
+  nivel     VARCHAR(14),                     -- Fácil | Intermediário | Difícil
+  ordem     INT,                             -- posição na sequência
   pergunta  TEXT         NOT NULL,
-  resposta  VARCHAR(120) NOT NULL,          -- comparada com lower(trim(...))
-  ativo     CHAR(1)      NOT NULL DEFAULT 'S' CHECK (ativo IN ('S','N')),
-  CONSTRAINT uk_enigma UNIQUE (tipo, pergunta)
+  resposta  VARCHAR(400) NOT NULL,           -- comparada com norm() (minúsculas, sem acento/pontuação)
+  arquivo   VARCHAR(120),                    -- para tipo 'html': nome do .html em public/enigmas/
+  ativo     CHAR(1)      NOT NULL DEFAULT 'S' CHECK (ativo IN ('S','N'))
 );
+CREATE INDEX IF NOT EXISTS ix_enigma_seq ON enigma (ativo, ordem, id);
 
 -- Parâmetros em 3 escopos. Resolução: enigma -> sala (sessao) -> global.
 -- Chaves: energia_inicial, decaimento_min, penalidade_erro, custo_ajudar,
@@ -569,30 +577,3 @@ INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
   ('global', NULL, 'qtd_enigmas',         4)    -- portas por sala
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 
--- Pool de enigmas de teste — contas aritméticas. Depois viram enigmas reais.
-INSERT INTO enigma (tipo, pergunta, resposta) VALUES
-  ('aritmetica', '7 + 5',      '12'),
-  ('aritmetica', '9 + 8',      '17'),
-  ('aritmetica', '13 + 19',    '32'),
-  ('aritmetica', '25 + 17',    '42'),
-  ('aritmetica', '6 + 7 + 8',  '21'),
-  ('aritmetica', '15 - 6',     '9'),
-  ('aritmetica', '42 - 17',    '25'),
-  ('aritmetica', '100 - 37',   '63'),
-  ('aritmetica', '3 * 4',      '12'),
-  ('aritmetica', '6 * 7',      '42'),
-  ('aritmetica', '8 * 9',      '72'),
-  ('aritmetica', '12 * 12',    '144'),
-  ('aritmetica', '36 / 6',     '6'),
-  ('aritmetica', '81 / 9',     '9'),
-  ('aritmetica', '144 / 12',   '12'),
-  ('aritmetica', '2 * 3 + 4',  '10'),
-  ('aritmetica', '5 * (2 + 3)','25'),
-  ('aritmetica', '20 - 3 * 4', '8'),
-  ('aritmetica', '7 * 8 - 6',  '50'),
-  ('aritmetica', '100 / 4 + 5','30'),
-  ('aritmetica', '11 + 22 + 33','66'),
-  ('aritmetica', '9 * 9 - 1',  '80'),
-  ('aritmetica', '50 - 25 / 5','45'),
-  ('aritmetica', '(8 + 4) / 3','4')
-ON CONFLICT (tipo, pergunta) DO NOTHING;

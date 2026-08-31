@@ -27,6 +27,15 @@ const estado = {
 
 let socket = null;
 
+// Enigma interativo (iframe /enigmas/*) avisa que foi resolvido.
+window.addEventListener('message', e => {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'enigma_resolvido' && socket) {
+        socket.emit('responder', { resposta: d.resposta ?? '' });
+    }
+});
+
 $(async function () {
     const m = location.pathname.match(/^\/sala\/([A-Za-z0-9]{1,12})$/);
     if (m) estado.salaAlvo = m[1].toUpperCase();
@@ -213,6 +222,7 @@ function conectar() {
         estado.jogo.noHall = true;
         estado.jogo.porta = porta;
         $('#jogo-enigma').addClass('d-none');
+        $('#jogo-iframe').attr('src', 'about:blank');
         $('#jogo-fim').addClass('d-none');
         $('#hall').removeClass('d-none');
         $('#hall-proxima').text(`próxima: porta ${porta}${estado.jogo.total ? ' de ' + estado.jogo.total : ''}`);
@@ -234,10 +244,21 @@ function conectar() {
         if (st.terminou) return;
         $('#jogo-enigma').removeClass('d-none');
         $('#jogo-fim').addClass('d-none');
-        $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}`);
-        $('#jogo-pergunta').text(st.pergunta);
-        $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
+        $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`);
         $('#jogo-aviso').text('');
+
+        if (st.tipo === 'html' && st.arquivo) {
+            // enigma interativo: a própria página valida e avisa por postMessage
+            $('#jogo-pergunta, #jogo-form').addClass('d-none');
+            $('#jogo-iframe')
+                .attr('src', '/enigmas/' + st.arquivo + '?t=' + Date.now())
+                .removeClass('d-none');
+        } else {
+            $('#jogo-iframe').addClass('d-none').attr('src', 'about:blank');
+            $('#jogo-pergunta').removeClass('d-none').text(st.pergunta);
+            $('#jogo-form').removeClass('d-none');
+            $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
+        }
     });
     socket.on('niveis', ({ lista }) => {
         estado.jogo.niveisLista = lista || [];
