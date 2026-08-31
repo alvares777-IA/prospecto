@@ -123,7 +123,9 @@ export async function responder(sessaoId, jogadorId, resposta) {
     if (!cur.rows[0]) return { erro: 'sem_enigma' };
     const { enigma_id, resposta: correta } = cur.rows[0];
 
-    const acertou = norm(resposta) === norm(correta);
+    const a = norm(resposta), c = norm(correta);
+    // enigmas 'html' (digitar) toleram resposta parcial, como as páginas faziam
+    const acertou = a === c || (st.tipo === 'html' && a.length >= 3 && c.includes(a));
 
     const pj = await pool.query(
         `SELECT id FROM partida_jogador WHERE sessao_id = $1 AND jogador_id = $2`,

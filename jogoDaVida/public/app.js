@@ -27,14 +27,21 @@ const estado = {
 
 let socket = null;
 
-// Enigma interativo (iframe /enigmas/*) avisa que foi resolvido.
+// Enigma interativo (iframe /enigmas/*): a página manda só a escolha do jogador;
+// quem valida é o servidor. O resultado volta para o iframe (mostra ✓/✗).
 window.addEventListener('message', e => {
     if (e.origin !== location.origin) return;
     const d = e.data || {};
-    if (d.tipo === 'enigma_resolvido' && socket) {
-        socket.emit('responder', { resposta: d.resposta ?? '' });
+    if (d.tipo === 'tentativa' && socket) {
+        estado.jogo._htmlPendente = true;
+        socket.emit('responder', { resposta: d.valor ?? '' });
     }
 });
+
+function avisarIframe(correto) {
+    const w = document.getElementById('jogo-iframe')?.contentWindow;
+    try { w && w.postMessage({ tipo: 'resultado', correto }, location.origin); } catch (e) {}
+}
 
 $(async function () {
     const m = location.pathname.match(/^\/sala\/([A-Za-z0-9]{1,12})$/);
@@ -218,6 +225,18 @@ function conectar() {
 
     // ── jogo ──────────────────────────────────────────────────────────
     socket.on('hall', ({ porta }) => {
+        // acerto de enigma html: mostra o ✓ no iframe antes de trocar de tela
+        if (estado.jogo._htmlPendente) {
+            estado.jogo._htmlPendente = false;
+            avisarIframe(true);
+            setTimeout(() => aplicarHall(porta), 700);
+            return;
+        }
+        aplicarHall(porta);
+    });
+    $('#btn-prosseguir').on('click', () => socket.emit('prosseguir'));
+
+    function aplicarHall(porta) {
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
         estado.jogo.noHall = true;
         estado.jogo.porta = porta;
@@ -230,7 +249,7 @@ function conectar() {
         renderHall();
         atualizarChat();
         $('#campo-msg').trigger('focus');
-    });
+    }
     $('#btn-prosseguir').on('click', () => socket.emit('prosseguir'));
 
     socket.on('meu_enigma', st => {
@@ -280,6 +299,7 @@ function conectar() {
         setEnergia(energia);
         $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Resposta errada. -5% de energia.');
         $('#jogo-resposta').val('').trigger('focus');
+        if (estado.jogo._htmlPendente) { avisarIframe(false); estado.jogo._htmlPendente = false; }
     });
     socket.on('porta_alcancada', ({ jogador, socketId, porta }) => {
         estado.jogo.portas[socketId] = porta;

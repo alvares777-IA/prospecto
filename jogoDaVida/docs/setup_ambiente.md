@@ -90,9 +90,9 @@ O catálogo (`enigma`) vem de `db/enigmas/` — `texto.csv` (100) + as
 páginas interativas `enigma-###.html` (100). Carregar/atualizar:
 
 ```bash
-# páginas servidas
-cp jogoDaVida/db/enigmas/*.html jogoDaVida/db/enigmas/game.js \
-   jogoDaVida/db/enigmas/style.css jogoDaVida/public/enigmas/
+# páginas servidas (copia p/ public/enigmas/ REMOVENDO o gabarito data-answer;
+# as páginas html só confirmam acerto dentro do jogo)
+node jogoDaVida/db/publicar_enigmas.mjs
 
 # importa para o banco (roda dentro do container)
 docker cp jogoDaVida/db/enigmas prospecto-ia-jogodavida-1:/tmp/enigmas
