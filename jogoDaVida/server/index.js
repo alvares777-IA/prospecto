@@ -260,7 +260,7 @@ io.on('connection', (socket) => {
         } catch (err) { console.warn('[jogo] dar_ajuda:', err.message); }
     });
 
-    socket.on('mensagem', (dados) => {
+    socket.on('mensagem', async (dados) => {
         const codigo = sala.salaDe(socket.id);
         const jogador = sala.buscar(socket.id);
         if (!codigo || !jogador) return;
@@ -272,6 +272,23 @@ io.on('connection', (socket) => {
             texto,
             ts: Date.now(),
         });
+
+        // Resposta no chat -> desconto de TODOS os jogadores da sala.
+        const m = sala.metaDe(codigo);
+        if (m?.estado !== 'em_jogo') return;
+        try {
+            const r = await jogo.penalizarSpoiler(m.sessaoId, texto);
+            if (!r.acertou) return;
+            io.to(codigo).emit('spoiler_chat', { jogador: jogador.nome, penalidade: r.penalidade });
+            for (const { jogadorId, energia } of r.jogadores) {
+                if (energia == null) continue;
+                const sid = [...(io.sockets.adapter.rooms.get(codigo) || [])]
+                    .find(s => sala.buscar(s)?.jogadorId === jogadorId);
+                const s = sid && io.sockets.sockets.get(sid);
+                s?.emit('energia', { energia: Math.round(energia * 10) / 10 });
+                if (energia <= 0) s?.emit('sem_energia');
+            }
+        } catch (err) { console.warn('[jogo] spoiler:', err.message); }
     });
 
     socket.on('disconnect', () => {

@@ -552,6 +552,7 @@ INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
   ('global', NULL, 'penalidade_erro',     5),   -- % por resposta errada
   ('global', NULL, 'custo_ajudar',        5),   -- % de quem dá a resposta
   ('global', NULL, 'custo_pedir_ajuda',   2),   -- % de quem pede ajuda
+  ('global', NULL, 'penalidade_chat',    10),   -- % de TODOS se a resposta cair no chat
   ('global', NULL, 'qtd_enigmas',         4)    -- portas por sala
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 

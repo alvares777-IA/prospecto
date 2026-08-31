@@ -230,6 +230,11 @@ function conectar() {
     });
     socket.on('pediu_ajuda', ({ jogador, porta }) => feed(`${jogador} pediu ajuda na porta ${porta}`));
     socket.on('ajudou', ({ de, para }) => feed(`${de} ajudou ${para}`));
+    socket.on('spoiler_chat', ({ jogador, penalidade }) => {
+        feed(`⚠️ ${jogador} colocou uma resposta no chat — todos perderam ${penalidade}%`);
+        $('#jogo-aviso').removeClass('text-success').addClass('text-danger')
+            .text(`Resposta no chat: -${penalidade}% de energia para todos.`);
+    });
     socket.on('ajuda_recebida', ({ de, porta, resposta }) => {
         feed(`${de} te passou a resposta da porta ${porta}: ${resposta}`);
         $('#jogo-aviso').removeClass('text-danger').addClass('text-success').text(`Dica de ${de}: ${resposta}`);

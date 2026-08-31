@@ -188,4 +188,37 @@ async function enigmaIdDaPorta(sessaoId, porta) {
     return r.rows[0]?.enigma_id || null;
 }
 
+// Uma resposta caiu no chat? Se sim, desconta de TODOS os jogadores em jogo.
+// Devolve { acertou, penalidade, jogadores:[{jogadorId, energia}] } ou { acertou:false }.
+export async function penalizarSpoiler(sessaoId, texto) {
+    const linhas = (await pool.query(
+        `SELECT e.resposta FROM sessao_enigma se JOIN enigma e ON e.id = se.enigma_id
+          WHERE se.sessao_id = $1`, [sessaoId],
+    )).rows;
+    if (!linhas.length) return { acertou: false };
+
+    const respostas = linhas.map(r => ({ n: norm(r.resposta), multi: /\s/.test(r.resposta) }));
+    const normMsg = norm(texto);
+    const tokens = new Set(
+        String(texto).split(/[^\p{L}\p{N}]+/u).map(norm).filter(Boolean),
+    );
+    const bateu = respostas.some(r => tokens.has(r.n) || (r.multi && normMsg.includes(r.n)));
+    if (!bateu) return { acertou: false };
+
+    const pen = Number((await pool.query(
+        `SELECT param('penalidade_chat', NULL, $1) AS v`, [sessaoId],
+    )).rows[0].v) || 10;
+
+    const alvos = (await pool.query(
+        `SELECT jogador_id FROM partida_jogador WHERE sessao_id = $1 AND dt_fim IS NULL`,
+        [sessaoId],
+    )).rows.map(r => r.jogador_id);
+
+    const jogadores = [];
+    for (const jid of alvos) {
+        jogadores.push({ jogadorId: jid, energia: await settle(sessaoId, jid, -pen) });
+    }
+    return { acertou: true, penalidade: pen, jogadores };
+}
+
 const norm = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
