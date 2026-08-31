@@ -118,7 +118,14 @@
           <div id="jogo-energia-barra" class="progress-bar bg-success" style="width:100%"></div>
         </div>
 
-        <div id="jogo-enigma">
+        <div id="hall" class="d-none">
+          <p class="mb-1"><strong>Hall de espera</strong> — <span id="hall-proxima" class="text-secondary"></span></p>
+          <ul id="hall-jogadores" class="list-unstyled small mb-2"></ul>
+          <p class="text-secondary small mb-2">Deixe uma mensagem no chat e prossiga, ou aguarde os outros.</p>
+          <button id="btn-prosseguir" class="btn btn-primary">Prosseguir</button>
+        </div>
+
+        <div id="jogo-enigma" class="d-none">
           <p class="mb-1"><span id="jogo-porta" class="text-secondary small"></span></p>
           <p class="h5" id="jogo-pergunta">…</p>
           <form id="jogo-form" class="d-flex flex-wrap gap-2 mb-2">

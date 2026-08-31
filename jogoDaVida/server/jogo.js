@@ -93,6 +93,15 @@ export async function tique(sessaoId, jogadorId) {
     return settle(sessaoId, jogadorId, 0);
 }
 
+// Nível (porta) de cada jogador da sessão — para o hall de espera.
+export async function niveis(sessaoId) {
+    return (await pool.query(
+        `SELECT jogador_id, porta, (dt_fim IS NOT NULL) AS terminou
+           FROM partida_jogador WHERE sessao_id = $1`,
+        [sessaoId],
+    )).rows;
+}
+
 // Responde a porta atual. Devolve { correta, porta, terminou, energia } ou { erro }.
 export async function responder(sessaoId, jogadorId, resposta) {
     const st = await estado(sessaoId, jogadorId);

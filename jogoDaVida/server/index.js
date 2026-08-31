@@ -120,8 +120,11 @@ async function gravarEntradaComRetry(socket, codigo, ident, criando) {
             sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
             sala.marcarEstado(codigo, r.estado);
             socket.emit('presenca_confirmada', { codigo });
-            // entrou numa sala que já começou -> já recebe o enigma
-            if (r.estado === 'em_jogo') entregarEnigma(socket, r.sessaoId, r.jogadorId);
+            // entrou numa sala que já começou -> vai pro hall da porta atual
+            if (r.estado === 'em_jogo') {
+                await entregarHall(socket, r.sessaoId, r.jogadorId);
+                transmitirNiveis(codigo, r.sessaoId);
+            }
             return;
         } catch (err) {
             console.warn(`[persistencia] ${codigo}: entrada não gravada (tentativa ${i + 1}), repetindo:`, err.message);
@@ -160,13 +163,32 @@ function limparPedido(codigo, sessaoId, jogadorId, socketIdPedinte) {
     }
 }
 
-// Garante a partida do jogador e manda o estado (enigma da porta, energia).
-async function entregarEnigma(socket, sessaoId, jogadorId) {
+// Garante a partida e coloca o jogador no HALL da porta atual (ele decide
+// quando "prosseguir" para o enigma).
+async function entregarHall(socket, sessaoId, jogadorId) {
     try {
         const st = await jogo.garantirPartida(sessaoId, jogadorId);
-        socket.emit('meu_enigma', st);
+        if (st.terminou) return socket.emit('jogo_terminado', { porta: st.total, energia: st.energia });
+        socket.emit('hall', { porta: st.porta, total: st.total });
     } catch (err) {
-        console.warn('[jogo] entregarEnigma:', err.message);
+        console.warn('[jogo] entregarHall:', err.message);
+    }
+}
+
+// Envia a todos da sala o nível (porta) de cada jogador presente.
+async function transmitirNiveis(codigo, sessaoId) {
+    try {
+        const rows = await jogo.niveis(sessaoId);
+        const porJid = new Map(rows.map(r => [String(r.jogador_id), r]));
+        const lista = [...(io.sockets.adapter.rooms.get(codigo) || [])].map(sid => {
+            const mb = sala.buscar(sid);
+            if (!mb?.jogadorId) return null;
+            const n = porJid.get(String(mb.jogadorId));
+            return { socketId: sid, nome: mb.nome, porta: n?.porta ?? null, terminou: !!n?.terminou };
+        }).filter(Boolean);
+        io.to(codigo).emit('niveis', { lista });
+    } catch (err) {
+        console.warn('[jogo] transmitirNiveis:', err.message);
     }
 }
 
@@ -214,11 +236,12 @@ io.on('connection', (socket) => {
         io.to(codigo).emit('jogo_iniciado', { codigo });
         console.log(`[io] jogo iniciado em ${codigo}`);
 
-        // cada jogador presente e confirmado recebe seu enigma
+        // cada jogador presente e confirmado vai pro hall da porta 1
         for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
             const jid = sala.buscar(sid)?.jogadorId;
-            if (jid) entregarEnigma(io.sockets.sockets.get(sid), m.sessaoId, jid);
+            if (jid) await entregarHall(io.sockets.sockets.get(sid), m.sessaoId, jid);
         }
+        transmitirNiveis(codigo, m.sessaoId);
     });
 
     // contexto de jogo do socket, ou null
@@ -240,11 +263,20 @@ io.on('connection', (socket) => {
                 limparPedido(c.codigo, c.sessaoId, c.eu.jogadorId, socket.id);   // avançou -> pedido some
                 io.to(c.codigo).emit('porta_alcancada', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
                 if (r.terminou) socket.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
-                else socket.emit('meu_enigma', await jogo.estado(c.sessaoId, c.eu.jogadorId));
+                else socket.emit('hall', { porta: r.porta });   // hall antes da próxima porta
+                transmitirNiveis(c.codigo, c.sessaoId);
             } else {
                 socket.emit('resposta_errada', { energia: r.energia });
             }
         } catch (err) { console.warn('[jogo] responder:', err.message); }
+    });
+
+    socket.on('prosseguir', async () => {
+        const c = ctxJogo();
+        if (!c) return;
+        try {
+            socket.emit('meu_enigma', await jogo.estado(c.sessaoId, c.eu.jogadorId));
+        } catch (err) { console.warn('[jogo] prosseguir:', err.message); }
     });
 
     socket.on('pedir_ajuda', async () => {

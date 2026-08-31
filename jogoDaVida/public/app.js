@@ -19,6 +19,7 @@ const estado = {
         energiaBase: null, energiaDt: 0, decaimentoMin: 1,
         portas: {}, ultimaLista: [],
         chatAberto: false, chatLiberado: false,
+        noHall: false, niveisLista: [],
         pedidos: {},          // socketId -> { jogador, porta }  (pedidos de ajuda abertos)
         recusei: new Set(),   // socketIds que EU recusei ajudar
     },
@@ -207,11 +208,27 @@ function conectar() {
     });
 
     // ── jogo ──────────────────────────────────────────────────────────
+    socket.on('hall', ({ porta }) => {
+        if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
+        estado.jogo.noHall = true;
+        estado.jogo.porta = porta;
+        $('#jogo-enigma').addClass('d-none');
+        $('#jogo-fim').addClass('d-none');
+        $('#hall').removeClass('d-none');
+        $('#hall-proxima').text(`próxima: porta ${porta}${estado.jogo.total ? ' de ' + estado.jogo.total : ''}`);
+        renderHall();
+        atualizarChat();
+        $('#campo-msg').trigger('focus');
+    });
+    $('#btn-prosseguir').on('click', () => socket.emit('prosseguir'));
+
     socket.on('meu_enigma', st => {
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
+        estado.jogo.noHall = false;
         estado.jogo.porta = st.porta;
         estado.jogo.total = st.total;
         estado.jogo.chatAberto = !!st.chatAberto;
+        $('#hall').addClass('d-none');
         atualizarChat();
         setEnergia(st.energia, st.decaimentoMin);
         if (st.terminou) return;
@@ -221,6 +238,14 @@ function conectar() {
         $('#jogo-pergunta').text(st.pergunta);
         $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
         $('#jogo-aviso').text('');
+    });
+    socket.on('niveis', ({ lista }) => {
+        estado.jogo.niveisLista = lista || [];
+        for (const p of estado.jogo.niveisLista) {
+            if (p.porta != null) estado.jogo.portas[p.socketId] = p.porta;
+        }
+        renderHall();
+        renderJogadores();
     });
     socket.on('chat_liberado', () => {
         if (estado.jogo.chatLiberado) return;
@@ -266,8 +291,9 @@ function conectar() {
         $('#jogo-aviso').removeClass('text-danger').addClass('text-success').text(`Dica de ${de}: ${resposta}`);
     });
     socket.on('jogo_terminado', ({ porta, energia }) => {
+        estado.jogo.noHall = false;
         setEnergia(energia);
-        $('#jogo-enigma').addClass('d-none');
+        $('#jogo-enigma, #hall').addClass('d-none');
         $('#jogo-fim').removeClass('d-none').text(`Você concluiu as ${porta} portas! Energia final: ${Math.round(energia)}%`);
     });
     socket.on('sem_energia', () => {
@@ -319,9 +345,19 @@ function feed(msg) {
 }
 
 function atualizarChat() {
-    const aberto = estado.jogo.chatAberto || estado.jogo.chatLiberado;
+    // no hall o chat sempre aparece
+    const aberto = estado.jogo.noHall || estado.jogo.chatAberto || estado.jogo.chatLiberado;
     $('#chat-area').toggleClass('d-none', !aberto);
     $('#chat-fechado').toggleClass('d-none', aberto);
+}
+
+function renderHall() {
+    const $ul = $('#hall-jogadores').empty();
+    for (const p of estado.jogo.niveisLista) {
+        const sou = socket && p.socketId === socket.id;
+        const nivel = p.terminou ? 'concluiu' : (p.porta != null ? `nível ${p.porta}` : '—');
+        $('<li>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}`).appendTo($ul);
+    }
 }
 
 function renderJogadores() {
