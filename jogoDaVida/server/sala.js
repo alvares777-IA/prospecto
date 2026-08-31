@@ -3,17 +3,17 @@
 // e da coluna sessao.codigo). Reinício do servidor = salas vazias; o que não
 // pode sumir está no Postgres (server/persistencia.js).
 
-// codigo -> Map<socketId, { nome, avatar_codigo, presencaId }>
+// codigo -> Map<socketId, { nome, avatar_codigo, presencaId, noHallCoop }>
 const salas = new Map();
-// codigo -> { sessaoId, criadorSocketId, estado }
+// codigo -> { sessaoId, criadorSocketId, estado, modo }
 const meta = new Map();
 
-export function entrar(codigo, socketId, jogador, estado = 'aguardando') {
+export function entrar(codigo, socketId, jogador, estado = 'aguardando', modo = 'individual') {
     if (!salas.has(codigo)) {
         salas.set(codigo, new Map());
-        meta.set(codigo, { sessaoId: null, criadorSocketId: null, estado });
+        meta.set(codigo, { sessaoId: null, criadorSocketId: null, estado, modo });
     }
-    salas.get(codigo).set(socketId, { ...jogador, presencaId: null });
+    salas.get(codigo).set(socketId, { ...jogador, presencaId: null, noHallCoop: false });
 }
 
 export function existe(codigo) {
@@ -24,11 +24,12 @@ export function metaDe(codigo) {
     return meta.get(codigo) || null;
 }
 
-// Chamado quando a gravação confirma: guarda o id da sessão e quem é o criador.
-export function anotarSala(codigo, { sessaoId, souCriador, socketId }) {
+// Chamado quando a gravação confirma: guarda o id da sessão, o modo e o criador.
+export function anotarSala(codigo, { sessaoId, souCriador, socketId, modo }) {
     const m = meta.get(codigo);
     if (!m) return;
     if (sessaoId) m.sessaoId = sessaoId;
+    if (modo) m.modo = modo;
     if (souCriador && socketId) m.criadorSocketId = socketId;
 }
 
@@ -37,16 +38,24 @@ export function marcarEstado(codigo, estado) {
     if (m) m.estado = estado;
 }
 
+// Coop: marca/desmarca que o socket já clicou "Avançar" e está no hall da fase.
+export function marcarHallCoop(socketId, valor) {
+    const m = buscar(socketId);
+    if (m) m.noHallCoop = !!valor;
+}
+
 export function ehCriador(socketId) {
     const codigo = salaDe(socketId);
     return !!codigo && meta.get(codigo)?.criadorSocketId === socketId;
 }
 
-// Salas atualmente em jogo, com id de sessão — para o relógio de energia.
+// Salas atualmente em jogo, com id de sessão e modo — para o relógio de energia.
 export function emJogo() {
     const out = [];
     for (const [codigo, m] of meta) {
-        if (m.estado === 'em_jogo' && m.sessaoId) out.push({ codigo, sessaoId: m.sessaoId });
+        if (m.estado === 'em_jogo' && m.sessaoId) {
+            out.push({ codigo, sessaoId: m.sessaoId, modo: m.modo || 'individual' });
+        }
     }
     return out;
 }

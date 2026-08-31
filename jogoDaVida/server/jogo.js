@@ -28,11 +28,18 @@ export async function iniciarSala(sessaoId) {
     )).rows[0].n;
 }
 
-// Cria a partida do jogador (energia inicial, porta 1) se ainda não existe.
+// Cria a partida do jogador (porta 1) se ainda não existe. A energia inicial é
+// a energia PESSOAL que ele carrega (jogador.energia), nunca abaixo de
+// `piso_energia`. Anônimo tem jogador.energia = 100 por padrão.
 export async function garantirPartida(sessaoId, jogadorId) {
     await pool.query(
-        `INSERT INTO partida_jogador (sessao_id, jogador_id, energia)
-         VALUES ($1, $2, param('energia_inicial', NULL, $1))
+        `INSERT INTO partida_jogador (sessao_id, jogador_id, energia, energia_entrada)
+         SELECT $1, $2, e.ini, e.ini
+           FROM (SELECT GREATEST(
+                   COALESCE((SELECT energia FROM jogador WHERE id = $2),
+                            param('energia_inicial', NULL, $1)),
+                   COALESCE(param('piso_energia', NULL, $1), 0)
+                 ) AS ini) e
          ON CONFLICT (sessao_id, jogador_id) DO NOTHING`,
         [sessaoId, jogadorId],
     );
@@ -98,6 +105,36 @@ export async function tique(sessaoId, jogadorId) {
     return settle(sessaoId, jogadorId, 0);
 }
 
+// Grava a energia da partida de volta na energia PESSOAL do jogador (só contas;
+// anônimo some ao sair). Se concluiu todas as portas, soma `bonus_vitoria`
+// antes. Idempotente: pode ser chamada ao terminar, ao esgotar e no disconnect.
+export async function finalizarPartida(sessaoId, jogadorId) {
+    const r = await pool.query(
+        `SELECT pj.energia AS reg, energia_atual(pj.id) AS agora, pj.dt_fim, pj.porta,
+                (SELECT count(*)::int FROM sessao_enigma WHERE sessao_id = pj.sessao_id) AS total
+           FROM partida_jogador pj
+          WHERE pj.sessao_id = $1 AND pj.jogador_id = $2`,
+        [sessaoId, jogadorId],
+    );
+    const p = r.rows[0];
+    if (!p) return null;
+    // partida encerrada (dt_fim): usa a energia congelada no fim; ainda em jogo
+    // (disconnect no meio): usa a energia corrente já com o decaimento.
+    let energia = Number(p.dt_fim ? p.reg : p.agora);
+    if (p.dt_fim && p.porta > p.total) {
+        const bonus = Number((await pool.query(
+            `SELECT param('bonus_vitoria', NULL, $1) AS v`, [sessaoId],
+        )).rows[0].v) || 0;
+        energia += bonus;
+    }
+    energia = Math.max(0, Math.min(100, energia));
+    await pool.query(
+        `UPDATE jogador SET energia = $2 WHERE id = $1 AND anonimo = 'N'`,
+        [jogadorId, energia],
+    );
+    return energia;
+}
+
 // Nível (porta) de cada jogador da sessão — para o hall de espera.
 export async function niveis(sessaoId) {
     return (await pool.query(
@@ -140,14 +177,17 @@ export async function responder(sessaoId, jogadorId, resposta) {
     if (acertou) {
         const nova = st.porta + 1;
         const terminou = nova > st.total;
+        const bonus = Number((await pool.query(
+            `SELECT param('bonus_enigma', $1, $2) AS v`, [enigma_id, sessaoId],
+        )).rows[0].v) || 0;
         await pool.query(
             `UPDATE partida_jogador
                 SET porta = $3::int,
-                    energia = energia_atual(id),
+                    energia = GREATEST(0, LEAST(100, energia_atual(id) + $5)),
                     dt_energia = now(),
                     dt_fim = CASE WHEN $4 THEN now() ELSE dt_fim END
               WHERE sessao_id = $1 AND jogador_id = $2`,
-            [sessaoId, jogadorId, nova, terminou],
+            [sessaoId, jogadorId, nova, terminou, bonus],
         );
         const depois = await estado(sessaoId, jogadorId);
         return { correta: true, porta: nova, terminou, energia: depois.energia };

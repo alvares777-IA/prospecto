@@ -114,6 +114,28 @@ csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
 `regra_destino`, `limiar`). Login próprio: `ADMIN_USER` / `ADMIN_SENHA`
 no `.env`.
 
+### Modo em equipe (coop) e energia pessoal
+
+Ao criar uma sala há duas opções: **sozinho** (cada jogador corre a
+sequência de portas por conta própria, com hall e ajuda) e **em equipe**
+(todos entram juntos, uma barra de energia só, enigmas divididos em fases;
+qualquer jogador resolve qualquer enigma da fase; resolvidos todos, cada um
+clica "Avançar" → hall da equipe → "Começar próxima fase"). A sala em
+equipe **tranca a entrada** depois de "Iniciar jogo".
+
+A energia agora é **pessoal e persiste entre salas** (`jogador.energia`).
+Não regenera com o tempo — só volta como prêmio: `bonus_enigma` % ao
+resolver um enigma e `bonus_vitoria` % ao vencer a sala. Ao entrar numa
+partida a energia inicial é a pessoal (nunca abaixo de `piso_energia`); ao
+sair ela é gravada de volta. No coop, a saída devolve
+`energia_na_entrada × (energia_da_equipe_no_momento / 100)`. Anônimo não
+persiste — entra sempre com 100%. Parâmetros novos (globais, editáveis no
+`/admin`): `bonus_enigma`, `bonus_vitoria`, `piso_energia`, `qtd_fases`,
+`enigmas_por_fase`.
+
+O `schema_pg.sql` é idempotente; reaplicar já adiciona as colunas/tabelas
+novas (`ALTER ... ADD COLUMN IF NOT EXISTS`, `partida_equipe`).
+
 ---
 
 ## Passo 6 — Rodar direto no host (opcional, iteração mais rápida)

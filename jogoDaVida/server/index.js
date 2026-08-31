@@ -14,6 +14,7 @@ import { pool, ping } from './db.js';
 import * as sala from './sala.js';
 import * as persistencia from './persistencia.js';
 import * as jogo from './jogo.js';
+import * as jogoCoop from './jogo_coop.js';
 import { montarAuth, sessionMiddleware } from './auth.js';
 import { montarAdmin } from './admin.js';
 
@@ -113,16 +114,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Grava a entrada e FICA TENTANDO até conseguir (docs: "não pode ter falhas").
 // A sala já respondeu ao vivo; isto só destrava o "Iniciar jogo".
-async function gravarEntradaComRetry(socket, codigo, ident, criando) {
+async function gravarEntradaComRetry(socket, codigo, ident, criando, modo) {
     const espera = [1000, 2000, 4000, 8000];
     for (let i = 0; socket.connected; i++) {
         try {
-            const r = await persistencia.registrarEntradaEmSala({ ...ident, salaCodigo: codigo, criando });
+            const r = await persistencia.registrarEntradaEmSala({ ...ident, salaCodigo: codigo, criando, modo });
             if (r.erro) { console.warn(`[persistencia] ${codigo}: ${r.erro}`); return; }
             sala.anotarGravacao(socket.id, { presencaId: r.presencaId, jogadorId: r.jogadorId, anonimo: r.anonimo });
-            sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
+            sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id, modo: r.modo });
             sala.marcarEstado(codigo, r.estado);
-            socket.emit('presenca_confirmada', { codigo });
+            socket.emit('presenca_confirmada', { codigo, modo: r.modo, energiaPessoal: r.energiaPessoal });
             // entrou numa sala que já começou -> vai pro hall da porta atual
             if (r.estado === 'em_jogo') {
                 await entregarHall(socket, r.sessaoId, r.jogadorId);
@@ -137,14 +138,15 @@ async function gravarEntradaComRetry(socket, codigo, ident, criando) {
 }
 
 // Coloca o socket na sala (estado vivo + broadcast) e grava atrás.
-function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
+function ingressar(socket, codigo, ident, { criando, souCriador, estado, modo }) {
     const jogador = { nome: ident.apelido, avatar_codigo: ident.avatar_codigo };
     socket.join(codigo);
-    sala.entrar(codigo, socket.id, jogador, estado);
+    sala.entrar(codigo, socket.id, jogador, estado, modo || 'individual');
     socket.emit('sala_pronta', {
         codigo,
         souCriador,
         estado,
+        modo: modo || undefined,   // só o criador sabe o modo de cara; o resto vem no presenca_confirmada
         anonimo: ident.anonimo,
         voce: { socketId: socket.id, ...jogador },
         lista: sala.presentes(codigo),
@@ -152,7 +154,7 @@ function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
     io.to(codigo).emit('presentes', { codigo, lista: sala.presentes(codigo) });
     console.log(`[io] ${jogador.nome} ${criando ? 'criou' : 'entrou em'} ${codigo} (${sala.presentes(codigo).length})`);
 
-    gravarEntradaComRetry(socket, codigo, ident, criando);
+    gravarEntradaComRetry(socket, codigo, ident, criando, modo);
 }
 
 // Pedidos de ajuda abertos: `${sessaoId}:${jogadorId do pedinte}` -> { socketId, porta }.
@@ -178,6 +180,31 @@ async function entregarHall(socket, sessaoId, jogadorId) {
     }
 }
 
+// Coop: envia o estado do tabuleiro compartilhado a toda a sala, e os avisos
+// de fim (vitória / barra da equipe esgotada).
+async function transmitirEstadoCoop(codigo, sessaoId) {
+    try {
+        const est = await jogoCoop.estadoCoop(sessaoId);
+        if (!est) return;
+        io.to(codigo).emit('estado_coop', est);
+        if (est.terminou) io.to(codigo).emit('jogo_terminado', { modo: 'coop', energia: est.energia });
+        if (est.esgotado) io.to(codigo).emit('equipe_esgotada', { energia: est.energia });
+    } catch (err) {
+        console.warn('[coop] transmitirEstadoCoop:', err.message);
+    }
+}
+
+// Coop: quem já clicou "Avançar" (no hall da fase) x quem ainda está no tabuleiro.
+function emitirHallCoop(codigo) {
+    const noHall = [], naSala = [];
+    for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
+        const mb = sala.buscar(sid);
+        if (!mb?.jogadorId) continue;
+        (mb.noHallCoop ? noHall : naSala).push({ socketId: sid, nome: mb.nome });
+    }
+    io.to(codigo).emit('hall_coop', { noHall, naSala });
+}
+
 // Envia a todos da sala o nível (porta) de cada jogador presente.
 async function transmitirNiveis(codigo, sessaoId) {
     try {
@@ -201,7 +228,8 @@ io.on('connection', (socket) => {
     socket.on('criar_sala', async (dados) => {
         const ident = identidade(socket, dados);
         if (!ident || !(await avatarOk(ident.avatar_codigo))) return;
-        ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando' });
+        const modo = dados?.modo === 'coop' ? 'coop' : 'individual';
+        ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando', modo });
     });
 
     socket.on('entrar_sala', async (dados) => {
@@ -212,13 +240,20 @@ io.on('connection', (socket) => {
         if (!codigo) return socket.emit('erro_sala', { motivo: 'Digite o código da sala.' });
 
         // Aceita se a sala está viva na memória; senão confirma no banco.
-        let estado = sala.metaDe(codigo)?.estado;
+        const m = sala.metaDe(codigo);
+        let estado = m?.estado;
+        let modo = m?.modo;
         if (estado === undefined) {
             const info = await persistencia.salaInfo(codigo);
             if (!info) return socket.emit('erro_sala', { motivo: 'Sala não encontrada.' });
             estado = info.estado;
+            modo = info.modo;
         }
-        ingressar(socket, codigo, ident, { criando: false, souCriador: false, estado });
+        // sala em equipe tranca a entrada depois que o jogo começa
+        if (modo === 'coop' && estado === 'em_jogo') {
+            return socket.emit('erro_sala', { motivo: 'O jogo em equipe desta sala já começou.' });
+        }
+        ingressar(socket, codigo, ident, { criando: false, souCriador: false, estado, modo });
     });
 
     socket.on('iniciar_jogo', async () => {
@@ -228,18 +263,31 @@ io.on('connection', (socket) => {
         const m = sala.metaDe(codigo);
         if (!m || m.estado === 'em_jogo' || !m.sessaoId) return;
 
+        const coop = m.modo === 'coop';
         try {
             await persistencia.iniciarJogo(m.sessaoId);
-            await jogo.iniciarSala(m.sessaoId);        // gera a sequência de enigmas
+            if (coop) await jogoCoop.iniciarCoop(m.sessaoId);
+            else await jogo.iniciarSala(m.sessaoId);   // gera a sequência de enigmas
         } catch (err) {
             console.warn('[jogo] iniciar falhou:', err.message);
             return socket.emit('erro_sala', { motivo: 'Não consegui iniciar agora. Tente de novo.' });
         }
         sala.marcarEstado(codigo, 'em_jogo');
-        io.to(codigo).emit('jogo_iniciado', { codigo });
-        console.log(`[io] jogo iniciado em ${codigo}`);
+        io.to(codigo).emit('jogo_iniciado', { codigo, modo: coop ? 'coop' : 'individual' });
+        console.log(`[io] jogo iniciado em ${codigo} (${coop ? 'coop' : 'individual'})`);
 
-        // cada jogador presente e confirmado vai pro hall da porta 1
+        if (coop) {
+            // snapshot da energia pessoal de cada presente + primeiro estado do tabuleiro
+            for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
+                const jid = sala.buscar(sid)?.jogadorId;
+                if (jid) await jogoCoop.garantirJogadorCoop(m.sessaoId, jid);
+            }
+            await transmitirEstadoCoop(codigo, m.sessaoId);
+            emitirHallCoop(codigo);
+            return;
+        }
+
+        // individual: cada jogador presente e confirmado vai pro hall da porta 1
         for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
             const jid = sala.buscar(sid)?.jogadorId;
             if (jid) await entregarHall(io.sockets.sockets.get(sid), m.sessaoId, jid);
@@ -253,25 +301,92 @@ io.on('connection', (socket) => {
         const eu = sala.buscar(socket.id);
         const m = sala.metaDe(codigo || '');
         if (!codigo || !eu?.jogadorId || m?.estado !== 'em_jogo') return null;
-        return { codigo, eu, sessaoId: m.sessaoId };
+        return { codigo, eu, sessaoId: m.sessaoId, modo: m.modo || 'individual' };
     }
 
     socket.on('responder', async (dados) => {
         const c = ctxJogo();
         if (!c) return;
+
+        if (c.modo === 'coop') {
+            const ordem = Number(dados?.ordem);
+            if (!Number.isInteger(ordem)) return;
+            try {
+                const r = await jogoCoop.responderCoop(
+                    c.sessaoId, c.eu.jogadorId, ordem, String(dados?.resposta ?? '').slice(0, 120));
+                if (r.erro) return;
+                if (r.correta && r.resolvido) {
+                    io.to(c.codigo).emit('enigma_resolvido', { ordem, por: c.eu.nome });
+                    await transmitirEstadoCoop(c.codigo, c.sessaoId);
+                } else if (r.correta) {
+                    socket.emit('estado_coop', await jogoCoop.estadoCoop(c.sessaoId));   // alguém chegou antes
+                } else {
+                    io.to(c.codigo).emit('energia', { energia: Math.round((r.energia ?? 0) * 10) / 10 });
+                    socket.emit('resposta_errada', { energia: r.energia });
+                    await transmitirEstadoCoop(c.codigo, c.sessaoId);
+                }
+            } catch (err) { console.warn('[coop] responder:', err.message); }
+            return;
+        }
+
         try {
             const r = await jogo.responder(c.sessaoId, c.eu.jogadorId, String(dados?.resposta ?? '').slice(0, 120));
             if (r.erro) return;
             if (r.correta) {
                 limparPedido(c.codigo, c.sessaoId, c.eu.jogadorId, socket.id);   // avançou -> pedido some
                 io.to(c.codigo).emit('porta_alcancada', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
-                if (r.terminou) socket.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
-                else socket.emit('hall', { porta: r.porta });   // hall antes da próxima porta
+                if (r.terminou) {
+                    await jogo.finalizarPartida(c.sessaoId, c.eu.jogadorId);   // grava a energia pessoal
+                    socket.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
+                } else {
+                    socket.emit('hall', { porta: r.porta });   // hall antes da próxima porta
+                }
                 transmitirNiveis(c.codigo, c.sessaoId);
             } else {
                 socket.emit('resposta_errada', { energia: r.energia });
             }
         } catch (err) { console.warn('[jogo] responder:', err.message); }
+    });
+
+    socket.on('avancar_fase', async () => {
+        const c = ctxJogo();
+        if (!c || c.modo !== 'coop') return;
+        try {
+            const est = await jogoCoop.estadoCoop(c.sessaoId);
+            if (!est) return;
+            if (!est.faseCompleta) {
+                // a fase já avançou enquanto ele demorava — entrega o tabuleiro novo
+                sala.marcarHallCoop(socket.id, false);
+                socket.emit('estado_coop', est);
+                if (est.terminou) socket.emit('jogo_terminado', { modo: 'coop', energia: est.energia });
+                if (est.esgotado) socket.emit('equipe_esgotada', { energia: est.energia });
+            } else {
+                sala.marcarHallCoop(socket.id, true);
+                socket.emit('coop_no_hall', { fase: est.fase });
+            }
+            emitirHallCoop(c.codigo);
+        } catch (err) { console.warn('[coop] avancar_fase:', err.message); }
+    });
+
+    socket.on('comecar_fase', async () => {
+        const c = ctxJogo();
+        if (!c || c.modo !== 'coop') return;
+        try {
+            const est = await jogoCoop.estadoCoop(c.sessaoId);
+            if (!est || est.terminou || !est.faseCompleta) return;
+            const r = await jogoCoop.avancarFase(c.sessaoId, est.fase);
+            if (!r.mudou) return;
+            for (const sid of io.sockets.adapter.rooms.get(c.codigo) || []) sala.marcarHallCoop(sid, false);
+            io.to(c.codigo).emit('fase_avancou', { fase: r.fase, venceu: r.venceu });
+            if (r.venceu) {
+                for (const sid of io.sockets.adapter.rooms.get(c.codigo) || []) {
+                    const jid = sala.buscar(sid)?.jogadorId;
+                    if (jid) await jogoCoop.sairCoop(c.sessaoId, jid);   // grava energia pessoal (fração final)
+                }
+            }
+            await transmitirEstadoCoop(c.codigo, c.sessaoId);
+            emitirHallCoop(c.codigo);
+        } catch (err) { console.warn('[coop] comecar_fase:', err.message); }
     });
 
     socket.on('prosseguir', async () => {
@@ -362,8 +477,9 @@ io.on('connection', (socket) => {
         });
 
         // Resposta no chat -> desconto de TODOS os jogadores da sala.
+        // No coop o chat é livre e não há penalidade de spoiler.
         const m = sala.metaDe(codigo);
-        if (m?.estado !== 'em_jogo') return;
+        if (m?.estado !== 'em_jogo' || m?.modo === 'coop') return;
         try {
             const r = await jogo.penalizarSpoiler(m.sessaoId, texto);
             if (!r.acertou) return;
@@ -390,8 +506,16 @@ io.on('connection', (socket) => {
                 // anônimo "perde tudo ao sair"
                 persistencia.apagarAnonimo(m.jogadorId);
             } else {
+                // grava a energia pessoal de volta antes de carimbar a saída
+                if (meta?.sessaoId && m.jogadorId && meta.estado === 'em_jogo') {
+                    const gravar = meta.modo === 'coop'
+                        ? jogoCoop.sairCoop(meta.sessaoId, m.jogadorId)
+                        : jogo.finalizarPartida(meta.sessaoId, m.jogadorId);
+                    gravar.catch(err => console.warn('[jogo] energia pessoal não gravada:', err.message));
+                }
                 persistencia.registrarSaida(m.presencaId)
                     .catch(err => console.warn('[persistencia] saída não gravada:', err.message));
+                if (meta?.modo === 'coop') emitirHallCoop(saiu.codigo);
             }
         }
         console.log(`[io] desconectou ${socket.id}`);
@@ -406,7 +530,24 @@ httpServer.listen(PORT, () => {
 // Relógio de energia: a cada 20s aplica o decaimento e avisa cada jogador em
 // jogo. Quem zera recebe `sem_energia` (o settle já marca dt_fim).
 setInterval(async () => {
-    for (const { codigo, sessaoId } of sala.emJogo()) {
+    for (const { codigo, sessaoId, modo } of sala.emJogo()) {
+        if (modo === 'coop') {
+            try {
+                const energia = await jogoCoop.tiqueCoop(sessaoId);
+                if (energia === null) continue;
+                io.to(codigo).emit('energia', { energia: Math.round(energia * 10) / 10 });
+                if (energia <= 0) {
+                    io.to(codigo).emit('equipe_esgotada', { energia: 0 });
+                    for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
+                        const jid = sala.buscar(sid)?.jogadorId;
+                        if (jid) await jogoCoop.sairCoop(sessaoId, jid);   // fração final = 0
+                    }
+                }
+            } catch (err) {
+                console.warn('[coop] tique:', err.message);
+            }
+            continue;
+        }
         for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
             const jid = sala.buscar(sid)?.jogadorId;
             if (!jid) continue;
@@ -415,7 +556,10 @@ setInterval(async () => {
                 if (energia === null) continue;
                 const s = io.sockets.sockets.get(sid);
                 s?.emit('energia', { energia: Math.round(energia * 10) / 10 });
-                if (energia <= 0) s?.emit('sem_energia');
+                if (energia <= 0) {
+                    s?.emit('sem_energia');
+                    await jogo.finalizarPartida(sessaoId, jid);   // grava a energia pessoal (0)
+                }
             } catch (err) {
                 console.warn('[jogo] tique:', err.message);
             }

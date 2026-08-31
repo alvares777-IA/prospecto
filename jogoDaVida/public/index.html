@@ -71,9 +71,11 @@
 
     <!-- 2. CRIAR OU ENTRAR NUMA SALA -->
     <section id="tela-sala-escolha" class="d-none">
-      <h1 class="h4 mb-4">Onde você quer jogar?</h1>
+      <h1 class="h4 mb-3">Onde você quer jogar?</h1>
 
-      <button id="btn-criar" class="btn btn-primary w-100 mb-4">Criar uma sala nova</button>
+      <button id="btn-criar" class="btn btn-primary w-100 mb-2">Criar sala — sozinho</button>
+      <button id="btn-criar-coop" class="btn btn-outline-primary w-100 mb-1">Criar sala — em equipe</button>
+      <p class="text-secondary small mb-4">Em equipe: todos entram juntos, uma barra de energia só, enigmas por fase.</p>
 
       <div class="divisor mb-4"><span>ou entrar na sala de um amigo</span></div>
 
@@ -96,10 +98,12 @@
         <div class="text-end small">
           <span class="text-secondary">Sala</span>
           <span id="rotulo-codigo" class="badge text-bg-secondary fs-6"></span>
+          <span id="rotulo-modo" class="badge text-bg-info d-none">em equipe</span>
           <button id="btn-copiar" class="btn btn-sm btn-outline-secondary ms-1">copiar link</button>
         </div>
       </div>
-      <p class="text-secondary small" id="status-conexao">conectando…</p>
+      <p class="text-secondary small mb-1" id="status-conexao">conectando…</p>
+      <p class="text-secondary small" id="minha-energia"></p>
 
       <div id="area-inicio" class="mb-3">
         <button id="btn-iniciar" class="btn btn-success" disabled>Iniciar jogo</button>
@@ -147,6 +151,55 @@
 
         <div class="painel-titulo">Acontecimentos</div>
         <div id="jogo-feed" class="feed-jogo small"></div>
+      </div>
+
+      <!-- painel do modo EM EQUIPE (coop) -->
+      <div id="painel-coop" class="painel d-none mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="painel-titulo mb-0"><span id="coop-fase">Fase 1</span></div>
+          <div class="small">
+            <span class="text-secondary">tempo</span> <span id="coop-relogio">0:00</span>
+            <span class="text-secondary ms-3">energia da equipe</span> <span id="coop-energia-num">100%</span>
+          </div>
+        </div>
+        <div class="progress mb-3" style="height:10px">
+          <div id="coop-energia-barra" class="progress-bar bg-success" style="width:100%"></div>
+        </div>
+
+        <div id="coop-tabuleiro">
+          <p class="mb-1"><span id="coop-progresso" class="text-secondary small"></span></p>
+          <ul id="coop-enigmas" class="list-unstyled small mb-2"></ul>
+        </div>
+
+        <div id="coop-resolver" class="d-none">
+          <p class="mb-1"><span id="coop-enigma-nivel" class="text-secondary small"></span></p>
+          <p class="h5" id="coop-enigma-pergunta">…</p>
+          <iframe id="coop-iframe" class="d-none w-100 mb-2"
+                  style="height:540px;border:1px solid #1e2a45;border-radius:10px;background:#0f172a"></iframe>
+          <form id="coop-form" class="d-flex flex-wrap gap-2 mb-2">
+            <input id="coop-resposta" class="form-control" style="max-width:180px" autocomplete="off" placeholder="resposta da equipe">
+            <button class="btn btn-primary" type="submit">Responder</button>
+            <button id="coop-voltar" class="btn btn-outline-secondary" type="button">Voltar ao tabuleiro</button>
+          </form>
+          <div id="coop-aviso" class="small"></div>
+        </div>
+
+        <div id="coop-avancar" class="d-none mt-2">
+          <p class="text-success mb-1">Fase concluída!</p>
+          <button id="btn-avancar-fase" class="btn btn-primary">Avançar</button>
+        </div>
+
+        <div id="coop-hall" class="d-none mt-2">
+          <p class="mb-1"><strong>Hall da equipe</strong> — quem já quer seguir</p>
+          <ul id="coop-hall-lista" class="list-unstyled small mb-2"></ul>
+          <button id="btn-comecar-fase" class="btn btn-success">Começar próxima fase</button>
+        </div>
+
+        <div id="coop-fim" class="alert alert-success d-none"></div>
+
+        <hr>
+        <div class="painel-titulo">Acontecimentos</div>
+        <div id="coop-feed" class="feed-jogo small"></div>
       </div>
 
       <hr>

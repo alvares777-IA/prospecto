@@ -247,7 +247,8 @@ CREATE INDEX IF NOT EXISTS ix_enigma_seq ON enigma (ativo, ordem, id);
 
 -- Parâmetros em 3 escopos. Resolução: enigma -> sala (sessao) -> global.
 -- Chaves: energia_inicial, decaimento_min, penalidade_erro, custo_ajudar,
---         custo_pedir_ajuda, qtd_enigmas.
+--         custo_pedir_ajuda, penalidade_chat, chat_aberto, qtd_enigmas,
+--         bonus_enigma, bonus_vitoria, piso_energia, qtd_fases, enigmas_por_fase.
 CREATE TABLE IF NOT EXISTS parametro (
   id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   escopo    VARCHAR(10) NOT NULL CHECK (escopo IN ('global','sala','enigma')),
@@ -575,5 +576,63 @@ INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
   ('global', NULL, 'penalidade_chat',    10),   -- % de TODOS se a resposta cair no chat
   ('global', NULL, 'chat_aberto',         0),   -- 0 = chat fechado (abre ao oferecerem ajuda); 1 = sempre aberto
   ('global', NULL, 'qtd_enigmas',         4)    -- portas por sala
+ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
+
+
+-- =====================================================================
+--  7. MODO EM EQUIPE (coop) + ENERGIA PESSOAL PERSISTENTE
+--  Migração incremental e idempotente. As tabelas acima usam
+--  CREATE TABLE IF NOT EXISTS e não ganham colunas ao reaplicar; por
+--  isso os ALTER ... ADD COLUMN IF NOT EXISTS abaixo.
+-- =====================================================================
+
+-- Energia pessoal: sobrevive entre salas. Não decai no tempo — só volta
+-- como prêmio (bonus_enigma ao resolver, bonus_vitoria ao vencer).
+-- Anônimo não persiste (a linha é apagada ao sair); entra sempre com 100.
+ALTER TABLE jogador ADD COLUMN IF NOT EXISTS energia NUMERIC NOT NULL DEFAULT 100;
+
+-- Modo da sala e fase atual da equipe.
+ALTER TABLE sessao ADD COLUMN IF NOT EXISTS modo       VARCHAR(12) NOT NULL DEFAULT 'individual';
+ALTER TABLE sessao ADD COLUMN IF NOT EXISTS fase_atual INT         NOT NULL DEFAULT 1;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessao_modo_chk') THEN
+    ALTER TABLE sessao ADD CONSTRAINT sessao_modo_chk CHECK (modo IN ('individual','coop'));
+  END IF;
+END $$;
+
+-- Enigma da sala (coop): a que fase pertence e quem o resolveu.
+ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS fase          INT;
+ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS resolvido_por BIGINT REFERENCES jogador(id) ON DELETE SET NULL;
+ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS dt_resolvido  TIMESTAMPTZ;
+
+-- Snapshot da energia pessoal no momento em que a partida começou.
+-- Coop: multiplica a fração final da equipe para devolver energia ao sair.
+ALTER TABLE partida_jogador ADD COLUMN IF NOT EXISTS energia_entrada NUMERIC;
+
+-- Barra de energia ÚNICA da equipe numa sala coop. Começa em 100, decai no
+-- tempo (decaimento_min), cai a cada erro de qualquer um (penalidade_erro),
+-- sobe a cada enigma resolvido (bonus_enigma) e na vitória (bonus_vitoria).
+CREATE TABLE IF NOT EXISTS partida_equipe (
+  sessao_id   BIGINT      PRIMARY KEY REFERENCES sessao(id) ON DELETE CASCADE,
+  energia     NUMERIC     NOT NULL,
+  dt_energia  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  dt_inicio   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  dt_fim      TIMESTAMPTZ
+);
+
+-- Tentativa passa a servir também o coop, onde não há partida_jogador por
+-- porta: partida_id vira opcional e a tentativa se amarra em sessao/jogador.
+ALTER TABLE tentativa ALTER COLUMN partida_id DROP NOT NULL;
+ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS sessao_id  BIGINT REFERENCES sessao(id) ON DELETE CASCADE;
+ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS jogador_id BIGINT REFERENCES jogador(id) ON DELETE CASCADE;
+ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS ordem      INT;
+
+-- Parâmetros novos (globais; sala/enigma podem sobrepor).
+INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
+  ('global', NULL, 'bonus_enigma',      3),   -- % que volta ao resolver um enigma
+  ('global', NULL, 'bonus_vitoria',    10),   -- % que volta ao vencer a sala
+  ('global', NULL, 'piso_energia',      0),   -- energia mínima ao entrar numa partida (0 = honra o "afundou")
+  ('global', NULL, 'qtd_fases',         3),   -- fases numa sala coop
+  ('global', NULL, 'enigmas_por_fase',  3)    -- enigmas por fase
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 

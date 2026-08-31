@@ -15,6 +15,7 @@ const estado = {
     persistido: false,        // a minha entrada já foi gravada no banco?
     jogoIniciado: false,
     jogo: {                   // estado do protótipo de jogo
+        modo: 'individual',
         inicio: null, porta: 0, total: 0,
         energiaBase: null, energiaDt: 0, decaimentoMin: 1,
         portas: {}, ultimaLista: [],
@@ -22,6 +23,10 @@ const estado = {
         noHall: false, niveisLista: [],
         pedidos: {},          // socketId -> { jogador, porta }  (pedidos de ajuda abertos)
         recusei: new Set(),   // socketIds que EU recusei ajudar
+        coop: {               // modo em equipe
+            fase: 1, totalFases: 1, enigmas: [], ordemAberta: null,
+            energiaBase: null, energiaDt: 0, decaimentoMin: 1,
+        },
     },
 };
 
@@ -33,13 +38,22 @@ window.addEventListener('message', e => {
     if (e.origin !== location.origin) return;
     const d = e.data || {};
     if (d.tipo === 'tentativa' && socket) {
-        estado.jogo._htmlPendente = true;
-        socket.emit('responder', { resposta: d.valor ?? '' });
+        if (estado.jogo.modo === 'coop') {
+            socket.emit('responder', { ordem: estado.jogo.coop.ordemAberta, resposta: d.valor ?? '' });
+        } else {
+            estado.jogo._htmlPendente = true;
+            socket.emit('responder', { resposta: d.valor ?? '' });
+        }
     }
 });
 
 function avisarIframe(correto) {
     const w = document.getElementById('jogo-iframe')?.contentWindow;
+    try { w && w.postMessage({ tipo: 'resultado', correto }, location.origin); } catch (e) {}
+}
+
+function avisarIframeCoop(correto) {
+    const w = document.getElementById('coop-iframe')?.contentWindow;
     try { w && w.postMessage({ tipo: 'resultado', correto }, location.origin); } catch (e) {}
 }
 
@@ -67,7 +81,8 @@ $(async function () {
     // figura + sala
     $('#btn-continuar').on('click', continuar);
     $('#campo-nome').on('keydown', e => { if (e.key === 'Enter') continuar(); });
-    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador()); });
+    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador({ modo: 'individual' })); });
+    $('#btn-criar-coop').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador({ modo: 'coop' })); });
     $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
     $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
     $('#btn-copiar').on('click', copiarLink);
@@ -193,11 +208,12 @@ function conectar() {
         mostrar('#erro-sala', motivo || 'Não foi possível entrar.');
     });
 
-    socket.on('sala_pronta', ({ codigo, souCriador, estado: est, voce, lista }) => {
+    socket.on('sala_pronta', ({ codigo, souCriador, estado: est, modo, voce, lista }) => {
         estado.codigo = codigo;
         estado.souCriador = !!souCriador;
         estado.persistido = false;
         estado.jogoIniciado = est === 'em_jogo';
+        if (modo) aplicarModo(modo);
         history.replaceState(null, '', '/sala/' + codigo);
         const av = avatarPorCodigo(voce.avatar_codigo);
         $('#eu-nome').text(voce.nome);
@@ -209,8 +225,17 @@ function conectar() {
         $('#campo-msg').trigger('focus');
     });
 
-    socket.on('presenca_confirmada', () => { estado.persistido = true; atualizarInicio(); });
-    socket.on('jogo_iniciado', () => { estado.jogoIniciado = true; atualizarInicio(); });
+    socket.on('presenca_confirmada', ({ modo, energiaPessoal } = {}) => {
+        estado.persistido = true;
+        if (modo) aplicarModo(modo);
+        if (energiaPessoal != null) $('#minha-energia').text(`Sua energia: ${Math.round(energiaPessoal)}%`);
+        atualizarInicio();
+    });
+    socket.on('jogo_iniciado', ({ modo } = {}) => {
+        estado.jogoIniciado = true;
+        if (modo) aplicarModo(modo);
+        atualizarInicio();
+    });
 
     socket.on('presentes', ({ lista }) => renderPresentes(lista));
 
@@ -294,8 +319,19 @@ function conectar() {
         atualizarChat();
         feed('o chat foi liberado');
     });
-    socket.on('energia', ({ energia }) => setEnergia(energia));
+    socket.on('energia', ({ energia }) => {
+        if (estado.jogo.modo === 'coop') setEnergiaCoop(energia);
+        else setEnergia(energia);
+    });
     socket.on('resposta_errada', ({ energia }) => {
+        if (estado.jogo.modo === 'coop') {
+            setEnergiaCoop(energia);
+            $('#coop-aviso').removeClass('text-success').addClass('text-danger')
+                .text('Resposta errada — a equipe perdeu energia.');
+            $('#coop-resposta').val('').trigger('focus');
+            avisarIframeCoop(false);
+            return;
+        }
         setEnergia(energia);
         $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Resposta errada. -5% de energia.');
         $('#jogo-resposta').val('').trigger('focus');
@@ -337,7 +373,14 @@ function conectar() {
         $('<span>').text(` te passou a resposta da porta ${porta}: `).appendTo($b);
         $('<strong>').text(resposta).appendTo($b);
     });
-    socket.on('jogo_terminado', ({ porta, energia }) => {
+    socket.on('jogo_terminado', ({ porta, energia, modo }) => {
+        if (modo === 'coop') {
+            setEnergiaCoop(energia);
+            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
+            $('#coop-fim').removeClass('d-none alert-danger').addClass('alert-success')
+                .text(`A equipe venceu! Energia final da equipe: ${Math.round(energia)}%`);
+            return;
+        }
         estado.jogo.noHall = false;
         setEnergia(energia);
         $('#jogo-enigma, #hall').addClass('d-none');
@@ -354,6 +397,84 @@ function conectar() {
         if (r) socket.emit('responder', { resposta: r });
     });
     $('#jogo-pedir').on('click', () => socket.emit('pedir_ajuda'));
+
+    // ── modo em equipe (coop) ────────────────────────────────────────
+    socket.on('estado_coop', est => {
+        if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
+        aplicarModo('coop');
+        const c = estado.jogo.coop;
+        c.fase = est.fase;
+        c.totalFases = est.totalFases;
+        c.enigmas = est.enigmas || [];
+        c.faseCompleta = !!est.faseCompleta;
+        setEnergiaCoop(est.energia, est.decaimentoMin);
+        $('#coop-fase').text(`Fase ${est.fase} de ${est.totalFases}`);
+        atualizarChat();
+
+        if (est.terminou) {
+            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
+            $('#coop-fim').removeClass('d-none alert-danger').addClass('alert-success')
+                .text(`A equipe venceu! Energia final da equipe: ${Math.round(est.energia)}%`);
+            return;
+        }
+        if (est.esgotado) {
+            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
+            $('#coop-fim').removeClass('d-none alert-success').addClass('alert-danger')
+                .text('A energia da equipe acabou. Fim de jogo.');
+            return;
+        }
+        // se eu estava resolvendo um enigma que já foi resolvido, volto ao tabuleiro
+        const aberta = c.ordemAberta;
+        const aindaAberta = aberta != null && c.enigmas.some(e => e.ordem === aberta && !e.resolvido);
+        if (!aindaAberta && !$('#coop-hall').is(':visible')) {
+            c.ordemAberta = null;
+            $('#coop-iframe').attr('src', 'about:blank');
+            $('#coop-resolver').addClass('d-none');
+            $('#coop-tabuleiro').removeClass('d-none');
+        }
+        renderCoopTabuleiro(est);
+    });
+
+    socket.on('enigma_resolvido', ({ ordem, por }) => {
+        coopFeed(`✓ enigma resolvido por ${por}`);
+        if (estado.jogo.coop.ordemAberta === ordem) avisarIframeCoop(true);
+        // o estado_coop vem logo atrás e re-renderiza
+    });
+
+    socket.on('fase_avancou', ({ fase, venceu }) => {
+        coopFeed(venceu ? 'A equipe concluiu a última fase!' : `A equipe avançou para a fase ${fase}`);
+        estado.jogo.coop.ordemAberta = null;
+        $('#coop-iframe').attr('src', 'about:blank');
+        $('#coop-resolver, #coop-hall, #coop-avancar').addClass('d-none');
+        $('#coop-tabuleiro').removeClass('d-none');
+    });
+
+    socket.on('coop_no_hall', () => {
+        $('#coop-tabuleiro, #coop-resolver, #coop-avancar').addClass('d-none');
+        $('#coop-hall').removeClass('d-none');
+    });
+
+    socket.on('hall_coop', ({ noHall, naSala }) => {
+        const $ul = $('#coop-hall-lista').empty();
+        for (const p of noHall || []) $('<li class="text-success">').text(`${p.nome} — pronto`).appendTo($ul);
+        for (const p of naSala || []) $('<li class="text-secondary">').text(`${p.nome} — ainda no tabuleiro`).appendTo($ul);
+    });
+
+    socket.on('equipe_esgotada', ({ energia }) => {
+        setEnergiaCoop(energia ?? 0);
+        $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
+        $('#coop-fim').removeClass('d-none alert-success').addClass('alert-danger')
+            .text('A energia da equipe acabou. Fim de jogo.');
+    });
+
+    $('#coop-form').on('submit', e => {
+        e.preventDefault();
+        const r = $('#coop-resposta').val().trim();
+        if (r) socket.emit('responder', { ordem: estado.jogo.coop.ordemAberta, resposta: r });
+    });
+    $('#coop-voltar').on('click', voltarCoopTabuleiro);
+    $('#btn-avancar-fase').on('click', () => socket.emit('avancar_fase'));
+    $('#btn-comecar-fase').on('click', () => socket.emit('comecar_fase'));
 }
 
 function setEnergia(valor, decaimentoMin) {
@@ -371,20 +492,106 @@ function energiaAgora() {
 }
 
 function pintarEnergia() {
-    const e = energiaAgora();
-    $('#jogo-energia-num').text(Math.round(e) + '%');
-    $('#jogo-energia-barra').css('width', e + '%')
+    pintarBarra('#jogo-energia-num', '#jogo-energia-barra', energiaAgora());
+}
+
+function pintarBarra(selNum, selBarra, e) {
+    $(selNum).text(Math.round(e) + '%');
+    $(selBarra).css('width', e + '%')
         .toggleClass('bg-success', e > 50).toggleClass('bg-warning', e <= 50 && e > 20)
         .toggleClass('bg-danger', e <= 20);
+}
+
+// ── energia da equipe (coop) ────────────────────────────────────────
+function setEnergiaCoop(valor, decaimentoMin) {
+    const c = estado.jogo.coop;
+    c.energiaBase = valor;
+    c.energiaDt = Date.now();
+    if (decaimentoMin != null) c.decaimentoMin = decaimentoMin;
+    pintarEnergiaCoop();
+}
+
+function energiaCoopAgora() {
+    const c = estado.jogo.coop;
+    if (c.energiaBase == null) return 100;
+    const min = (Date.now() - c.energiaDt) / 60000;
+    return Math.max(0, c.energiaBase - (c.decaimentoMin || 1) * min);
+}
+
+function pintarEnergiaCoop() {
+    pintarBarra('#coop-energia-num', '#coop-energia-barra', energiaCoopAgora());
 }
 
 // relógio + energia local, 1x por segundo
 setInterval(() => {
     if (!estado.jogo.inicio) return;
     const s = Math.floor((Date.now() - estado.jogo.inicio) / 1000);
-    $('#jogo-relogio').text(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
-    pintarEnergia();
+    const relogio = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (estado.jogo.modo === 'coop') {
+        $('#coop-relogio').text(relogio);
+        pintarEnergiaCoop();
+    } else {
+        $('#jogo-relogio').text(relogio);
+        pintarEnergia();
+    }
 }, 1000);
+
+// Aplica o modo da sala (individual | coop) no estado e nos rótulos.
+function aplicarModo(modo) {
+    estado.jogo.modo = modo === 'coop' ? 'coop' : 'individual';
+    $('#rotulo-modo').toggleClass('d-none', estado.jogo.modo !== 'coop');
+}
+
+function coopFeed(msg) {
+    const el = $('#coop-feed').append($('<div>').text(msg))[0];
+    if (el) el.scrollTop = el.scrollHeight;
+}
+
+function renderCoopTabuleiro(est) {
+    const enigmas = est.enigmas || [];
+    const feitos = enigmas.filter(e => e.resolvido).length;
+    $('#coop-progresso').text(`${feitos} de ${enigmas.length} enigmas resolvidos nesta fase`);
+    const $ul = $('#coop-enigmas').empty();
+    enigmas.forEach((e, i) => {
+        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
+        if (e.resolvido) {
+            $('<span class="text-success">')
+                .text(`✓ enigma ${i + 1}${e.porQuem ? ' — ' + e.porQuem : ''}`).appendTo($li);
+        } else {
+            $('<span>').text(`enigma ${i + 1}${e.nivel ? ' · ' + e.nivel : ''}`).appendTo($li);
+            $('<button class="btn btn-sm btn-outline-primary py-0" type="button">')
+                .text('Resolver').on('click', () => abrirCoopEnigma(e)).appendTo($li);
+        }
+        $ul.append($li);
+    });
+    $('#coop-avancar').toggleClass('d-none', !est.faseCompleta);
+    if (!est.faseCompleta) $('#coop-hall').addClass('d-none');
+}
+
+function abrirCoopEnigma(e) {
+    estado.jogo.coop.ordemAberta = e.ordem;
+    $('#coop-tabuleiro, #coop-avancar, #coop-hall').addClass('d-none');
+    $('#coop-resolver').removeClass('d-none');
+    $('#coop-aviso').text('');
+    $('#coop-enigma-nivel').text(e.nivel || '');
+    if (e.tipo === 'html' && e.arquivo) {
+        $('#coop-enigma-pergunta, #coop-form').addClass('d-none');
+        $('#coop-iframe').attr('src', '/enigmas/' + e.arquivo + '?t=' + Date.now()).removeClass('d-none');
+    } else {
+        $('#coop-iframe').addClass('d-none').attr('src', 'about:blank');
+        $('#coop-enigma-pergunta').removeClass('d-none').text(e.pergunta);
+        $('#coop-form').removeClass('d-none');
+        $('#coop-resposta').val('').trigger('focus');
+    }
+}
+
+function voltarCoopTabuleiro() {
+    estado.jogo.coop.ordemAberta = null;
+    $('#coop-iframe').attr('src', 'about:blank');
+    $('#coop-resolver').addClass('d-none');
+    $('#coop-tabuleiro').removeClass('d-none');
+    $('#coop-avancar').toggleClass('d-none', !estado.jogo.coop.faseCompleta);
+}
 
 function feed(msg) {
     const el = $('#jogo-feed').append($('<div>').text(msg))[0];
@@ -392,8 +599,9 @@ function feed(msg) {
 }
 
 function atualizarChat() {
-    // no hall o chat sempre aparece
-    const aberto = estado.jogo.noHall || estado.jogo.chatAberto || estado.jogo.chatLiberado;
+    // no hall (e no modo em equipe) o chat sempre aparece
+    const aberto = estado.jogo.modo === 'coop'
+        || estado.jogo.noHall || estado.jogo.chatAberto || estado.jogo.chatLiberado;
     $('#chat-area').toggleClass('d-none', !aberto);
     $('#chat-fechado').toggleClass('d-none', aberto);
 }
@@ -475,10 +683,16 @@ function renderPresentes(lista) {
 function atualizarInicio() {
     if (estado.jogoIniciado) {
         $('#area-inicio').addClass('d-none');
-        $('#painel-controles').removeClass('d-none');
+        if (estado.jogo.modo === 'coop') {
+            $('#painel-controles').addClass('d-none');
+            $('#painel-coop').removeClass('d-none');
+        } else {
+            $('#painel-coop').addClass('d-none');
+            $('#painel-controles').removeClass('d-none');
+        }
         return;
     }
-    $('#painel-controles').addClass('d-none');
+    $('#painel-controles, #painel-coop').addClass('d-none');
     $('#area-inicio').removeClass('d-none');
 
     if (estado.souCriador) {
