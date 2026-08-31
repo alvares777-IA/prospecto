@@ -42,6 +42,15 @@ export function ehCriador(socketId) {
     return !!codigo && meta.get(codigo)?.criadorSocketId === socketId;
 }
 
+// Salas atualmente em jogo, com id de sessão — para o relógio de energia.
+export function emJogo() {
+    const out = [];
+    for (const [codigo, m] of meta) {
+        if (m.estado === 'em_jogo' && m.sessaoId) out.push({ codigo, sessaoId: m.sessaoId });
+    }
+    return out;
+}
+
 // A gravação no banco é assíncrona; quando confirma, anota aqui o id da
 // presença (para o disconnect carimbar) e a identidade (para apagar o anônimo).
 export function anotarGravacao(socketId, { presencaId, jogadorId, anonimo }) {

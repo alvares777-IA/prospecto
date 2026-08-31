@@ -14,6 +14,11 @@ const estado = {
     souCriador: false,
     persistido: false,        // a minha entrada já foi gravada no banco?
     jogoIniciado: false,
+    jogo: {                   // estado do protótipo de jogo
+        inicio: null, porta: 0, total: 0,
+        energiaBase: null, energiaDt: 0, decaimentoMin: 1,
+        portas: {}, ultimaLista: [],
+    },
 };
 
 let socket = null;
@@ -197,10 +202,111 @@ function conectar() {
         socket.emit('mensagem', { texto });
         $('#campo-msg').val('');
     });
+
+    // ── jogo ──────────────────────────────────────────────────────────
+    socket.on('meu_enigma', st => {
+        if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
+        estado.jogo.porta = st.porta;
+        estado.jogo.total = st.total;
+        setEnergia(st.energia, st.decaimentoMin);
+        if (st.terminou) return;
+        $('#jogo-enigma').removeClass('d-none');
+        $('#jogo-fim').addClass('d-none');
+        $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}`);
+        $('#jogo-pergunta').text(st.pergunta);
+        $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
+        $('#jogo-aviso').text('');
+    });
+    socket.on('energia', ({ energia }) => setEnergia(energia));
+    socket.on('resposta_errada', ({ energia }) => {
+        setEnergia(energia);
+        $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Resposta errada. -5% de energia.');
+        $('#jogo-resposta').val('').trigger('focus');
+    });
+    socket.on('porta_alcancada', ({ jogador, socketId, porta }) => {
+        estado.jogo.portas[socketId] = porta;
+        renderJogadores();
+        feed(`${jogador} chegou na porta ${porta}`);
+    });
+    socket.on('pediu_ajuda', ({ jogador, porta }) => feed(`${jogador} pediu ajuda na porta ${porta}`));
+    socket.on('ajudou', ({ de, para }) => feed(`${de} ajudou ${para}`));
+    socket.on('ajuda_recebida', ({ de, porta, resposta }) => {
+        feed(`${de} te passou a resposta da porta ${porta}: ${resposta}`);
+        $('#jogo-aviso').removeClass('text-danger').addClass('text-success').text(`Dica de ${de}: ${resposta}`);
+    });
+    socket.on('jogo_terminado', ({ porta, energia }) => {
+        setEnergia(energia);
+        $('#jogo-enigma').addClass('d-none');
+        $('#jogo-fim').removeClass('d-none').text(`Você concluiu as ${porta} portas! Energia final: ${Math.round(energia)}%`);
+    });
+    socket.on('sem_energia', () => {
+        $('#jogo-resposta, #jogo-pedir').prop('disabled', true);
+        $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Sua energia acabou.');
+    });
+
+    $('#jogo-form').on('submit', e => {
+        e.preventDefault();
+        const r = $('#jogo-resposta').val().trim();
+        if (r) socket.emit('responder', { resposta: r });
+    });
+    $('#jogo-pedir').on('click', () => socket.emit('pedir_ajuda'));
+}
+
+function setEnergia(valor, decaimentoMin) {
+    estado.jogo.energiaBase = valor;
+    estado.jogo.energiaDt = Date.now();
+    if (decaimentoMin != null) estado.jogo.decaimentoMin = decaimentoMin;
+    pintarEnergia();
+}
+
+function energiaAgora() {
+    const j = estado.jogo;
+    if (j.energiaBase == null) return 100;
+    const min = (Date.now() - j.energiaDt) / 60000;
+    return Math.max(0, j.energiaBase - (j.decaimentoMin || 1) * min);
+}
+
+function pintarEnergia() {
+    const e = energiaAgora();
+    $('#jogo-energia-num').text(Math.round(e) + '%');
+    $('#jogo-energia-barra').css('width', e + '%')
+        .toggleClass('bg-success', e > 50).toggleClass('bg-warning', e <= 50 && e > 20)
+        .toggleClass('bg-danger', e <= 20);
+}
+
+// relógio + energia local, 1x por segundo
+setInterval(() => {
+    if (!estado.jogo.inicio) return;
+    const s = Math.floor((Date.now() - estado.jogo.inicio) / 1000);
+    $('#jogo-relogio').text(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+    pintarEnergia();
+}, 1000);
+
+function feed(msg) {
+    const el = $('#jogo-feed').append($('<div>').text(msg))[0];
+    el.scrollTop = el.scrollHeight;
+}
+
+function renderJogadores() {
+    const $ul = $('#jogo-jogadores').empty();
+    for (const p of estado.jogo.ultimaLista || []) {
+        const sou = socket && p.socketId === socket.id;
+        const porta = estado.jogo.portas[p.socketId];
+        const $li = $('<li class="d-flex align-items-center gap-2 mb-1">');
+        $('<span>').text(p.nome + (sou ? ' (você)' : '') + (porta ? ` — porta ${porta}` : '')).appendTo($li);
+        if (!sou) {
+            $('<button class="btn btn-sm btn-outline-warning py-0">')
+                .text('Ajudar (-5%)')
+                .on('click', () => socket.emit('dar_ajuda', { paraSocketId: p.socketId }))
+                .appendTo($li);
+        }
+        $ul.append($li);
+    }
 }
 
 function renderPresentes(lista) {
     if (!lista) return;
+    estado.jogo.ultimaLista = lista;
     $('#contador-presentes').text(lista.length);
     const $ul = $('#lista-presentes').empty();
     for (const p of lista) {
@@ -211,6 +317,7 @@ function renderPresentes(lista) {
         $('<span>').text(p.nome + sou).appendTo($li);
         $ul.append($li);
     }
+    renderJogadores();
 }
 
 // Estado do bloco "Iniciar jogo" / painel de controles.

@@ -107,8 +107,36 @@
       </div>
 
       <div id="painel-controles" class="painel d-none mb-3">
-        <div class="painel-titulo">Controles</div>
-        <p class="text-secondary small mb-0">As ações do jogo entram aqui.</p>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="painel-titulo mb-0">Jogo</div>
+          <div class="small">
+            <span class="text-secondary">tempo</span> <span id="jogo-relogio">0:00</span>
+            <span class="text-secondary ms-3">energia</span> <span id="jogo-energia-num">100%</span>
+          </div>
+        </div>
+        <div class="progress mb-3" style="height:10px">
+          <div id="jogo-energia-barra" class="progress-bar bg-success" style="width:100%"></div>
+        </div>
+
+        <div id="jogo-enigma">
+          <p class="mb-1"><span id="jogo-porta" class="text-secondary small"></span></p>
+          <p class="h5" id="jogo-pergunta">…</p>
+          <form id="jogo-form" class="d-flex flex-wrap gap-2 mb-2">
+            <input id="jogo-resposta" class="form-control" style="max-width:180px" autocomplete="off" placeholder="sua resposta">
+            <button class="btn btn-primary" type="submit">Responder</button>
+            <button id="jogo-pedir" class="btn btn-outline-warning" type="button">Pedir ajuda (-2%)</button>
+          </form>
+          <div id="jogo-aviso" class="small"></div>
+        </div>
+
+        <div id="jogo-fim" class="alert alert-success d-none"></div>
+
+        <hr>
+        <div class="painel-titulo">Jogadores</div>
+        <ul id="jogo-jogadores" class="list-unstyled small mb-2"></ul>
+
+        <div class="painel-titulo">Acontecimentos</div>
+        <div id="jogo-feed" class="feed-jogo small"></div>
       </div>
 
       <hr>

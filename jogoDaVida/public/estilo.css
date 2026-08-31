@@ -55,6 +55,16 @@ code { color: #38bdf8; }
     margin-bottom: 6px;
 }
 
+.feed-jogo {
+    max-height: 120px;
+    overflow-y: auto;
+    border: 1px solid #1e2a45;
+    border-radius: 6px;
+    padding: 6px;
+    background: #0d1224;
+}
+.feed-jogo div { margin-bottom: 2px; }
+
 .divisor {
     display: flex;
     align-items: center;

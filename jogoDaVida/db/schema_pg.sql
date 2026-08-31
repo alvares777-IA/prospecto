@@ -222,6 +222,76 @@ CREATE TABLE IF NOT EXISTS consequencia (
 CREATE INDEX IF NOT EXISTS ix_conseq_pendente ON consequencia (sessao_id) WHERE dt_entrega IS NULL;
 
 
+-- ---------------------------------------------------------------------
+-- 6. PROTÓTIPO DE JOGO — enigmas, energia, portas, ajuda
+--    Loop simples para testar jogabilidade. Vai virar enigmas reais.
+-- ---------------------------------------------------------------------
+
+-- Catálogo de enigmas. Cada um pode sobrepor parâmetros (ver `parametro`).
+CREATE TABLE IF NOT EXISTS enigma (
+  id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tipo      VARCHAR(20)  NOT NULL DEFAULT 'aritmetica',
+  pergunta  TEXT         NOT NULL,
+  resposta  VARCHAR(120) NOT NULL,          -- comparada com lower(trim(...))
+  ativo     CHAR(1)      NOT NULL DEFAULT 'S' CHECK (ativo IN ('S','N')),
+  CONSTRAINT uk_enigma UNIQUE (tipo, pergunta)
+);
+
+-- Parâmetros em 3 escopos. Resolução: enigma -> sala (sessao) -> global.
+-- Chaves: energia_inicial, decaimento_min, penalidade_erro, custo_ajudar,
+--         custo_pedir_ajuda, qtd_enigmas.
+CREATE TABLE IF NOT EXISTS parametro (
+  id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  escopo    VARCHAR(10) NOT NULL CHECK (escopo IN ('global','sala','enigma')),
+  escopo_id BIGINT,                          -- NULL p/ global; sessao.id p/ sala; enigma.id p/ enigma
+  chave     VARCHAR(40) NOT NULL,
+  valor     NUMERIC     NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_parametro ON parametro (escopo, COALESCE(escopo_id, 0), chave);
+
+-- A sequência de enigmas de uma sala (as "portas"). Gerada ao iniciar o jogo.
+CREATE TABLE IF NOT EXISTS sessao_enigma (
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id  BIGINT NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
+  ordem      INT    NOT NULL,               -- 1..N = a porta
+  enigma_id  BIGINT NOT NULL REFERENCES enigma(id),
+  CONSTRAINT uk_sessao_enigma UNIQUE (sessao_id, ordem)
+);
+
+-- Progresso de cada jogador numa sala: energia e porta atual.
+CREATE TABLE IF NOT EXISTS partida_jogador (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id   BIGINT  NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
+  jogador_id  BIGINT  NOT NULL REFERENCES jogador(id) ON DELETE CASCADE,
+  energia     NUMERIC NOT NULL,             -- energia após o último evento
+  dt_energia  TIMESTAMPTZ NOT NULL DEFAULT now(),  -- quando 'energia' foi calculada
+  porta       INT     NOT NULL DEFAULT 1,
+  dt_inicio   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  dt_fim      TIMESTAMPTZ,                  -- concluiu tudo ou zerou energia
+  CONSTRAINT uk_partida UNIQUE (sessao_id, jogador_id)
+);
+
+CREATE TABLE IF NOT EXISTS tentativa (
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  partida_id BIGINT  NOT NULL REFERENCES partida_jogador(id) ON DELETE CASCADE,
+  porta      INT     NOT NULL,
+  enigma_id  BIGINT  NOT NULL REFERENCES enigma(id),
+  resposta   VARCHAR(120),
+  correta    BOOLEAN NOT NULL,
+  dt         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ajuda (
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id       BIGINT NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
+  de_jogador_id   BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
+  para_jogador_id BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
+  tipo            VARCHAR(10) NOT NULL CHECK (tipo IN ('pedido','resposta')),
+  porta           INT,
+  dt              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
 -- =====================================================================
 --  FUNÇÕES  (o motor de destino)
 -- =====================================================================
@@ -406,6 +476,30 @@ RETURNS void LANGUAGE sql AS $$
   DO UPDATE SET pontos = EXCLUDED.pontos, dt_atualiz = now();
 $$;
 
+-- Resolve um parâmetro do jogo: enigma -> sala (sessao) -> global.
+CREATE OR REPLACE FUNCTION param(p_chave VARCHAR, p_enigma_id BIGINT, p_sessao_id BIGINT)
+RETURNS NUMERIC LANGUAGE sql STABLE AS $$
+  SELECT valor FROM parametro
+   WHERE chave = p_chave
+     AND ( (escopo = 'enigma' AND escopo_id = p_enigma_id)
+        OR (escopo = 'sala'   AND escopo_id = p_sessao_id)
+        OR (escopo = 'global') )
+   ORDER BY CASE escopo WHEN 'enigma' THEN 1 WHEN 'sala' THEN 2 ELSE 3 END
+   LIMIT 1;
+$$;
+
+-- Energia atual de uma partida = energia registrada menos o decaimento
+-- (parâmetro do enigma da porta atual) desde dt_energia. Nunca abaixo de 0.
+CREATE OR REPLACE FUNCTION energia_atual(p_partida_id BIGINT)
+RETURNS NUMERIC LANGUAGE sql STABLE AS $$
+  SELECT GREATEST(0, pj.energia
+           - COALESCE(param('decaimento_min', se.enigma_id, pj.sessao_id), 1)
+             * (EXTRACT(EPOCH FROM now() - pj.dt_energia) / 60.0))
+    FROM partida_jogador pj
+    LEFT JOIN sessao_enigma se ON se.sessao_id = pj.sessao_id AND se.ordem = pj.porta
+   WHERE pj.id = p_partida_id;
+$$;
+
 
 -- =====================================================================
 --  SEED DA FATIA VERTICAL
@@ -447,3 +541,44 @@ INSERT INTO limiar (eixo, codigo, ordem, pontos_entrada, pontos_saida, efeito_co
 VALUES ('SOLIDARIEDADE', 'SOLIDARIO_1', 1, 30, 20,
         'LUZ_QUENTE', 'A iluminação da sala muda de tom para o jogador')
 ON CONFLICT (codigo) DO NOTHING;
+
+
+-- ── Protótipo de jogo ───────────────────────────────────────────────
+
+-- Parâmetros globais (o que o usuário definiu). Sala e enigma podem sobrepor.
+INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
+  ('global', NULL, 'energia_inicial',   100),
+  ('global', NULL, 'decaimento_min',      1),   -- % de energia por minuto
+  ('global', NULL, 'penalidade_erro',     5),   -- % por resposta errada
+  ('global', NULL, 'custo_ajudar',        5),   -- % de quem dá a resposta
+  ('global', NULL, 'custo_pedir_ajuda',   2),   -- % de quem pede ajuda
+  ('global', NULL, 'qtd_enigmas',         4)    -- portas por sala
+ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
+
+-- Pool de enigmas de teste — contas aritméticas. Depois viram enigmas reais.
+INSERT INTO enigma (tipo, pergunta, resposta) VALUES
+  ('aritmetica', '7 + 5',      '12'),
+  ('aritmetica', '9 + 8',      '17'),
+  ('aritmetica', '13 + 19',    '32'),
+  ('aritmetica', '25 + 17',    '42'),
+  ('aritmetica', '6 + 7 + 8',  '21'),
+  ('aritmetica', '15 - 6',     '9'),
+  ('aritmetica', '42 - 17',    '25'),
+  ('aritmetica', '100 - 37',   '63'),
+  ('aritmetica', '3 * 4',      '12'),
+  ('aritmetica', '6 * 7',      '42'),
+  ('aritmetica', '8 * 9',      '72'),
+  ('aritmetica', '12 * 12',    '144'),
+  ('aritmetica', '36 / 6',     '6'),
+  ('aritmetica', '81 / 9',     '9'),
+  ('aritmetica', '144 / 12',   '12'),
+  ('aritmetica', '2 * 3 + 4',  '10'),
+  ('aritmetica', '5 * (2 + 3)','25'),
+  ('aritmetica', '20 - 3 * 4', '8'),
+  ('aritmetica', '7 * 8 - 6',  '50'),
+  ('aritmetica', '100 / 4 + 5','30'),
+  ('aritmetica', '11 + 22 + 33','66'),
+  ('aritmetica', '9 * 9 - 1',  '80'),
+  ('aritmetica', '50 - 25 / 5','45'),
+  ('aritmetica', '(8 + 4) / 3','4')
+ON CONFLICT (tipo, pergunta) DO NOTHING;

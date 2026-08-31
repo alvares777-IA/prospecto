@@ -13,6 +13,7 @@ import { Server } from 'socket.io';
 import { pool, ping } from './db.js';
 import * as sala from './sala.js';
 import * as persistencia from './persistencia.js';
+import * as jogo from './jogo.js';
 import { montarAuth, sessionMiddleware } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -119,6 +120,8 @@ async function gravarEntradaComRetry(socket, codigo, ident, criando) {
             sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
             sala.marcarEstado(codigo, r.estado);
             socket.emit('presenca_confirmada', { codigo });
+            // entrou numa sala que já começou -> já recebe o enigma
+            if (r.estado === 'em_jogo') entregarEnigma(socket, r.sessaoId, r.jogadorId);
             return;
         } catch (err) {
             console.warn(`[persistencia] ${codigo}: entrada não gravada (tentativa ${i + 1}), repetindo:`, err.message);
@@ -144,6 +147,16 @@ function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
     console.log(`[io] ${jogador.nome} ${criando ? 'criou' : 'entrou em'} ${codigo} (${sala.presentes(codigo).length})`);
 
     gravarEntradaComRetry(socket, codigo, ident, criando);
+}
+
+// Garante a partida do jogador e manda o estado (enigma da porta, energia).
+async function entregarEnigma(socket, sessaoId, jogadorId) {
+    try {
+        const st = await jogo.garantirPartida(sessaoId, jogadorId);
+        socket.emit('meu_enigma', st);
+    } catch (err) {
+        console.warn('[jogo] entregarEnigma:', err.message);
+    }
 }
 
 io.on('connection', (socket) => {
@@ -181,13 +194,70 @@ io.on('connection', (socket) => {
 
         try {
             await persistencia.iniciarJogo(m.sessaoId);
+            await jogo.iniciarSala(m.sessaoId);        // gera a sequência de enigmas
         } catch (err) {
-            console.warn('[persistencia] iniciarJogo falhou:', err.message);
+            console.warn('[jogo] iniciar falhou:', err.message);
             return socket.emit('erro_sala', { motivo: 'Não consegui iniciar agora. Tente de novo.' });
         }
         sala.marcarEstado(codigo, 'em_jogo');
         io.to(codigo).emit('jogo_iniciado', { codigo });
         console.log(`[io] jogo iniciado em ${codigo}`);
+
+        // cada jogador presente e confirmado recebe seu enigma
+        for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
+            const jid = sala.buscar(sid)?.jogadorId;
+            if (jid) entregarEnigma(io.sockets.sockets.get(sid), m.sessaoId, jid);
+        }
+    });
+
+    // contexto de jogo do socket, ou null
+    function ctxJogo() {
+        const codigo = sala.salaDe(socket.id);
+        const eu = sala.buscar(socket.id);
+        const m = sala.metaDe(codigo || '');
+        if (!codigo || !eu?.jogadorId || m?.estado !== 'em_jogo') return null;
+        return { codigo, eu, sessaoId: m.sessaoId };
+    }
+
+    socket.on('responder', async (dados) => {
+        const c = ctxJogo();
+        if (!c) return;
+        try {
+            const r = await jogo.responder(c.sessaoId, c.eu.jogadorId, String(dados?.resposta ?? '').slice(0, 120));
+            if (r.erro) return;
+            if (r.correta) {
+                io.to(c.codigo).emit('porta_alcancada', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
+                if (r.terminou) socket.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
+                else socket.emit('meu_enigma', await jogo.estado(c.sessaoId, c.eu.jogadorId));
+            } else {
+                socket.emit('resposta_errada', { energia: r.energia });
+            }
+        } catch (err) { console.warn('[jogo] responder:', err.message); }
+    });
+
+    socket.on('pedir_ajuda', async () => {
+        const c = ctxJogo();
+        if (!c) return;
+        try {
+            const r = await jogo.pedirAjuda(c.sessaoId, c.eu.jogadorId);
+            if (r.erro) return;
+            socket.emit('energia', { energia: r.energia });
+            io.to(c.codigo).emit('pediu_ajuda', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
+        } catch (err) { console.warn('[jogo] pedir_ajuda:', err.message); }
+    });
+
+    socket.on('dar_ajuda', async (dados) => {
+        const c = ctxJogo();
+        const alvoSocket = io.sockets.sockets.get(String(dados?.paraSocketId || ''));
+        const alvo = sala.buscar(alvoSocket?.id || '');
+        if (!c || !alvo?.jogadorId || alvo.jogadorId === c.eu.jogadorId) return;
+        try {
+            const r = await jogo.darAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
+            if (r.erro) return;
+            socket.emit('energia', { energia: r.energiaDe });
+            alvoSocket.emit('ajuda_recebida', { de: c.eu.nome, porta: r.portaPara, resposta: r.resposta });
+            io.to(c.codigo).emit('ajudou', { de: c.eu.nome, para: alvo.nome });
+        } catch (err) { console.warn('[jogo] dar_ajuda:', err.message); }
     });
 
     socket.on('mensagem', (dados) => {
@@ -225,6 +295,26 @@ const PORT = process.env.PORT || 3004;
 httpServer.listen(PORT, () => {
     console.log(`jogoDaVida — servidor no ar em http://localhost:${PORT}`);
 });
+
+// Relógio de energia: a cada 20s aplica o decaimento e avisa cada jogador em
+// jogo. Quem zera recebe `sem_energia` (o settle já marca dt_fim).
+setInterval(async () => {
+    for (const { codigo, sessaoId } of sala.emJogo()) {
+        for (const sid of io.sockets.adapter.rooms.get(codigo) || []) {
+            const jid = sala.buscar(sid)?.jogadorId;
+            if (!jid) continue;
+            try {
+                const energia = await jogo.tique(sessaoId, jid);
+                if (energia === null) continue;
+                const s = io.sockets.sockets.get(sid);
+                s?.emit('energia', { energia: Math.round(energia * 10) / 10 });
+                if (energia <= 0) s?.emit('sem_energia');
+            } catch (err) {
+                console.warn('[jogo] tique:', err.message);
+            }
+        }
+    }
+}, 20000);
 
 // Shutdown limpo: fecha as sessões abertas deste processo. Dispara no
 // `docker stop` (SIGTERM); não no reload do nodemon (SIGUSR2) — a sessão
