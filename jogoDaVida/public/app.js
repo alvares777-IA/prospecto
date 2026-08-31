@@ -18,6 +18,9 @@ const estado = {
         inicio: null, porta: 0, total: 0,
         energiaBase: null, energiaDt: 0, decaimentoMin: 1,
         portas: {}, ultimaLista: [],
+        chatAberto: false, chatLiberado: false,
+        pedidos: {},          // socketId -> { jogador, porta }  (pedidos de ajuda abertos)
+        recusei: new Set(),   // socketIds que EU recusei ajudar
     },
 };
 
@@ -208,6 +211,8 @@ function conectar() {
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
         estado.jogo.porta = st.porta;
         estado.jogo.total = st.total;
+        estado.jogo.chatAberto = !!st.chatAberto;
+        atualizarChat();
         setEnergia(st.energia, st.decaimentoMin);
         if (st.terminou) return;
         $('#jogo-enigma').removeClass('d-none');
@@ -216,6 +221,12 @@ function conectar() {
         $('#jogo-pergunta').text(st.pergunta);
         $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
         $('#jogo-aviso').text('');
+    });
+    socket.on('chat_liberado', () => {
+        if (estado.jogo.chatLiberado) return;
+        estado.jogo.chatLiberado = true;
+        atualizarChat();
+        feed('o chat foi liberado');
     });
     socket.on('energia', ({ energia }) => setEnergia(energia));
     socket.on('resposta_errada', ({ energia }) => {
@@ -228,8 +239,23 @@ function conectar() {
         renderJogadores();
         feed(`${jogador} chegou na porta ${porta}`);
     });
-    socket.on('pediu_ajuda', ({ jogador, porta }) => feed(`${jogador} pediu ajuda na porta ${porta}`));
-    socket.on('ajudou', ({ de, para }) => feed(`${de} ajudou ${para}`));
+    socket.on('pediu_ajuda', ({ jogador, socketId, porta }) => {
+        estado.jogo.pedidos[socketId] = { jogador, porta };
+        estado.jogo.recusei.delete(socketId);
+        renderJogadores();
+        feed(`${jogador} pediu ajuda na porta ${porta}`);
+    });
+    socket.on('ajuda_resolvida', ({ socketId }) => {
+        delete estado.jogo.pedidos[socketId];
+        estado.jogo.recusei.delete(socketId);
+        renderJogadores();
+    });
+    socket.on('ofereceu_ajuda', ({ de, para }) => feed(`${de} ofereceu ajuda a ${para}`));
+    socket.on('recusou_ajuda', ({ de, para, socketId, alvoSocketId }) => {
+        feed(`${de} não quis ajudar ${para}`);
+        if (socketId === socket.id) { estado.jogo.recusei.add(alvoSocketId); renderJogadores(); }
+    });
+    socket.on('ajudou', ({ de, para }) => feed(`${de} deu a resposta a ${para}`));
     socket.on('spoiler_chat', ({ jogador, penalidade }) => {
         feed(`⚠️ ${jogador} colocou uma resposta no chat — todos perderam ${penalidade}%`);
         $('#jogo-aviso').removeClass('text-success').addClass('text-danger')
@@ -292,17 +318,35 @@ function feed(msg) {
     el.scrollTop = el.scrollHeight;
 }
 
+function atualizarChat() {
+    const aberto = estado.jogo.chatAberto || estado.jogo.chatLiberado;
+    $('#chat-area').toggleClass('d-none', !aberto);
+    $('#chat-fechado').toggleClass('d-none', aberto);
+}
+
 function renderJogadores() {
     const $ul = $('#jogo-jogadores').empty();
     for (const p of estado.jogo.ultimaLista || []) {
         const sou = socket && p.socketId === socket.id;
         const porta = estado.jogo.portas[p.socketId];
-        const $li = $('<li class="d-flex align-items-center gap-2 mb-1">');
+        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
         $('<span>').text(p.nome + (sou ? ' (você)' : '') + (porta ? ` — porta ${porta}` : '')).appendTo($li);
-        if (!sou) {
-            $('<button class="btn btn-sm btn-outline-warning py-0">')
-                .text('Ajudar (-5%)')
-                .on('click', () => socket.emit('dar_ajuda', { paraSocketId: p.socketId }))
+        if (sou) { $ul.append($li); continue; }
+
+        $('<button class="btn btn-sm btn-outline-warning py-0">')
+            .text('Dar resposta (-5%)')
+            .on('click', () => socket.emit('dar_ajuda', { paraSocketId: p.socketId }))
+            .appendTo($li);
+
+        const pediu = estado.jogo.pedidos[p.socketId] && !estado.jogo.recusei.has(p.socketId);
+        if (pediu) {
+            $('<button class="btn btn-sm btn-outline-info py-0">')
+                .text('Oferecer ajuda')
+                .on('click', () => socket.emit('oferecer_ajuda', { paraSocketId: p.socketId }))
+                .appendTo($li);
+            $('<button class="btn btn-sm btn-outline-danger py-0">')
+                .text('Não ajudar (+2%)')
+                .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId }))
                 .appendTo($li);
         }
         $ul.append($li);

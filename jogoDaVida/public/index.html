@@ -144,12 +144,17 @@
       <ul id="lista-presentes" class="list-unstyled"></ul>
 
       <hr>
-      <div id="chat" class="chat-log mb-2"></div>
-      <form id="form-msg" class="d-flex gap-2">
-        <input id="campo-msg" class="form-control" maxlength="500"
-               autocomplete="off" placeholder="mensagem…">
-        <button class="btn btn-outline-light" type="submit">Enviar</button>
-      </form>
+      <p id="chat-fechado" class="text-secondary small d-none">
+        Chat fechado neste enigma — abre quando alguém oferecer ajuda.
+      </p>
+      <div id="chat-area">
+        <div id="chat" class="chat-log mb-2"></div>
+        <form id="form-msg" class="d-flex gap-2">
+          <input id="campo-msg" class="form-control" maxlength="500"
+                 autocomplete="off" placeholder="mensagem…">
+          <button class="btn btn-outline-light" type="submit">Enviar</button>
+        </form>
+      </div>
     </section>
 
   </main>

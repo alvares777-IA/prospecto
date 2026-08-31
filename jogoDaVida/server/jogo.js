@@ -44,6 +44,7 @@ export async function estado(sessaoId, jogadorId) {
                 energia_atual(pj.id) AS energia,
                 (SELECT count(*)::int FROM sessao_enigma WHERE sessao_id = pj.sessao_id) AS total,
                 param('decaimento_min', se.enigma_id, pj.sessao_id) AS decaimento_min,
+                param('chat_aberto',    se.enigma_id, pj.sessao_id) AS chat_aberto,
                 e.id AS enigma_id, e.pergunta
            FROM partida_jogador pj
            LEFT JOIN sessao_enigma se ON se.sessao_id = pj.sessao_id AND se.ordem = pj.porta
@@ -57,8 +58,10 @@ export async function estado(sessaoId, jogadorId) {
     return {
         porta: p.porta,
         total: p.total,
+        enigmaId: p.enigma_id,
         energia: Math.round(Number(p.energia) * 10) / 10,
         decaimentoMin: Number(p.decaimento_min),
+        chatAberto: Number(p.chat_aberto) > 0,
         dtEnergia: p.dt_energia,
         terminou,
         esgotado: Number(p.energia) <= 0 && !terminou,
@@ -177,7 +180,52 @@ export async function darAjuda(sessaoId, deJogadorId, paraJogadorId) {
          VALUES ($1, $2, $3, 'resposta', $4)`,
         [sessaoId, deJogadorId, paraJogadorId, alvo.porta],
     );
+    await marcarCarater(sessaoId, deJogadorId, 'positivo', 'deu a resposta ao parceiro', alvo.porta);
     return { energiaDe, resposta: resp, portaPara: alvo.porta };
+}
+
+// Oferecer ajuda a quem pediu: sem custo, libera o chat da sala. Marca caráter +.
+export async function oferecerAjuda(sessaoId, deJogadorId, paraJogadorId) {
+    const alvo = await estado(sessaoId, paraJogadorId);
+    if (!alvo || alvo.terminou) return { erro: 'alvo_indisponivel' };
+    await pool.query(
+        `INSERT INTO ajuda (sessao_id, de_jogador_id, para_jogador_id, tipo, porta)
+         VALUES ($1, $2, $3, 'oferta', $4)`,
+        [sessaoId, deJogadorId, paraJogadorId, alvo.porta],
+    );
+    await marcarCarater(sessaoId, deJogadorId, 'positivo', 'ofereceu ajuda', alvo.porta);
+    return { portaPara: alvo.porta };
+}
+
+// Não ajudar: quem recusa GANHA o % que o parceiro perdeu ao pedir ajuda, e
+// leva uma marca de caráter negativo. Devolve { energia, portaPara }.
+export async function recusarAjuda(sessaoId, deJogadorId, paraJogadorId) {
+    const alvo = await estado(sessaoId, paraJogadorId);
+    if (!alvo) return { erro: 'alvo_indisponivel' };
+    const enigmaId = await enigmaIdDaPorta(sessaoId, alvo.porta);
+    const ganho = Number((await pool.query(
+        `SELECT param('custo_pedir_ajuda', $1, $2) AS v`, [enigmaId, sessaoId],
+    )).rows[0].v);
+
+    const energia = await settle(sessaoId, deJogadorId, +ganho);
+    if (energia === null) return { erro: 'sem_partida' };
+
+    await pool.query(
+        `INSERT INTO ajuda (sessao_id, de_jogador_id, para_jogador_id, tipo, porta)
+         VALUES ($1, $2, $3, 'recusa', $4)`,
+        [sessaoId, deJogadorId, paraJogadorId, alvo.porta],
+    );
+    await marcarCarater(sessaoId, deJogadorId, 'negativo',
+        'negou ajuda e ganhou a energia do parceiro', alvo.porta);
+    return { energia, portaPara: alvo.porta };
+}
+
+async function marcarCarater(sessaoId, jogadorId, tipo, descricao, porta) {
+    await pool.query(
+        `INSERT INTO carater (sessao_id, jogador_id, tipo, descricao, porta)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessaoId, jogadorId, tipo, descricao, porta],
+    );
 }
 
 async function enigmaIdDaPorta(sessaoId, porta) {

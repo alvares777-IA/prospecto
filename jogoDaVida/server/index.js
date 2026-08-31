@@ -149,6 +149,17 @@ function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
     gravarEntradaComRetry(socket, codigo, ident, criando);
 }
 
+// Pedidos de ajuda abertos: `${sessaoId}:${jogadorId do pedinte}` -> { socketId, porta }.
+// Some quando o pedinte avança de porta, resolve, ou sai.
+const pedidos = new Map();
+const chavePedido = (sessaoId, jogadorId) => `${sessaoId}:${jogadorId}`;
+
+function limparPedido(codigo, sessaoId, jogadorId, socketIdPedinte) {
+    if (pedidos.delete(chavePedido(sessaoId, jogadorId))) {
+        io.to(codigo).emit('ajuda_resolvida', { socketId: socketIdPedinte });
+    }
+}
+
 // Garante a partida do jogador e manda o estado (enigma da porta, energia).
 async function entregarEnigma(socket, sessaoId, jogadorId) {
     try {
@@ -226,6 +237,7 @@ io.on('connection', (socket) => {
             const r = await jogo.responder(c.sessaoId, c.eu.jogadorId, String(dados?.resposta ?? '').slice(0, 120));
             if (r.erro) return;
             if (r.correta) {
+                limparPedido(c.codigo, c.sessaoId, c.eu.jogadorId, socket.id);   // avançou -> pedido some
                 io.to(c.codigo).emit('porta_alcancada', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
                 if (r.terminou) socket.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
                 else socket.emit('meu_enigma', await jogo.estado(c.sessaoId, c.eu.jogadorId));
@@ -241,10 +253,20 @@ io.on('connection', (socket) => {
         try {
             const r = await jogo.pedirAjuda(c.sessaoId, c.eu.jogadorId);
             if (r.erro) return;
+            pedidos.set(chavePedido(c.sessaoId, c.eu.jogadorId), { socketId: socket.id, porta: r.porta });
             socket.emit('energia', { energia: r.energia });
             io.to(c.codigo).emit('pediu_ajuda', { jogador: c.eu.nome, socketId: socket.id, porta: r.porta });
         } catch (err) { console.warn('[jogo] pedir_ajuda:', err.message); }
     });
+
+    // Alvo de uma ação de ajuda: valida que ele tem um pedido aberto.
+    function alvoComPedido(sessaoId, paraSocketId) {
+        const s = io.sockets.sockets.get(String(paraSocketId || ''));
+        const a = sala.buscar(s?.id || '');
+        if (!a?.jogadorId) return null;
+        if (!pedidos.has(chavePedido(sessaoId, a.jogadorId))) return null;
+        return { socket: s, jogadorId: a.jogadorId, nome: a.nome };
+    }
 
     socket.on('dar_ajuda', async (dados) => {
         const c = ctxJogo();
@@ -254,10 +276,39 @@ io.on('connection', (socket) => {
         try {
             const r = await jogo.darAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
             if (r.erro) return;
+            io.to(c.codigo).emit('chat_liberado', { codigo: c.codigo });
             socket.emit('energia', { energia: r.energiaDe });
             alvoSocket.emit('ajuda_recebida', { de: c.eu.nome, porta: r.portaPara, resposta: r.resposta });
             io.to(c.codigo).emit('ajudou', { de: c.eu.nome, para: alvo.nome });
         } catch (err) { console.warn('[jogo] dar_ajuda:', err.message); }
+    });
+
+    socket.on('oferecer_ajuda', async (dados) => {
+        const c = ctxJogo();
+        if (!c) return;
+        const alvo = alvoComPedido(c.sessaoId, dados?.paraSocketId);
+        if (!alvo || alvo.jogadorId === c.eu.jogadorId) return;
+        try {
+            const r = await jogo.oferecerAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
+            if (r.erro) return;
+            io.to(c.codigo).emit('chat_liberado', { codigo: c.codigo });   // libera o chat da sala
+            io.to(c.codigo).emit('ofereceu_ajuda', { de: c.eu.nome, para: alvo.nome, socketId: socket.id });
+        } catch (err) { console.warn('[jogo] oferecer_ajuda:', err.message); }
+    });
+
+    socket.on('nao_ajudar', async (dados) => {
+        const c = ctxJogo();
+        if (!c) return;
+        const alvo = alvoComPedido(c.sessaoId, dados?.paraSocketId);
+        if (!alvo || alvo.jogadorId === c.eu.jogadorId) return;
+        try {
+            const r = await jogo.recusarAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
+            if (r.erro) return;
+            socket.emit('energia', { energia: r.energia });
+            io.to(c.codigo).emit('recusou_ajuda', {
+                de: c.eu.nome, para: alvo.nome, socketId: socket.id, alvoSocketId: alvo.socket.id,
+            });
+        } catch (err) { console.warn('[jogo] nao_ajudar:', err.message); }
     });
 
     socket.on('mensagem', async (dados) => {
@@ -296,6 +347,8 @@ io.on('connection', (socket) => {
         if (saiu) {
             io.to(saiu.codigo).emit('presentes', { codigo: saiu.codigo, lista: sala.presentes(saiu.codigo) });
             const m = saiu.membro;
+            const meta = sala.metaDe(saiu.codigo);
+            if (meta?.sessaoId && m.jogadorId) limparPedido(saiu.codigo, meta.sessaoId, m.jogadorId, socket.id);
             if (m.anonimo) {
                 // anônimo "perde tudo ao sair"
                 persistencia.apagarAnonimo(m.jogadorId);

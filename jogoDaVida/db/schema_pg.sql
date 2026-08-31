@@ -286,9 +286,21 @@ CREATE TABLE IF NOT EXISTS ajuda (
   sessao_id       BIGINT NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
   de_jogador_id   BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
   para_jogador_id BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
-  tipo            VARCHAR(10) NOT NULL CHECK (tipo IN ('pedido','resposta')),
+  tipo            VARCHAR(10) NOT NULL
+                  CHECK (tipo IN ('pedido','oferta','recusa','resposta')),
   porta           INT,
   dt              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Caráter do jogador: marcas de comportamento social observado no jogo.
+CREATE TABLE IF NOT EXISTS carater (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id   BIGINT REFERENCES sessao(id) ON DELETE CASCADE,
+  jogador_id  BIGINT REFERENCES jogador(id) ON DELETE CASCADE,
+  tipo        VARCHAR(10) NOT NULL CHECK (tipo IN ('negativo','positivo')),
+  descricao   VARCHAR(200) NOT NULL,
+  porta       INT,
+  dt          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 
@@ -553,6 +565,7 @@ INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
   ('global', NULL, 'custo_ajudar',        5),   -- % de quem dá a resposta
   ('global', NULL, 'custo_pedir_ajuda',   2),   -- % de quem pede ajuda
   ('global', NULL, 'penalidade_chat',    10),   -- % de TODOS se a resposta cair no chat
+  ('global', NULL, 'chat_aberto',         0),   -- 0 = chat fechado (abre ao oferecerem ajuda); 1 = sempre aberto
   ('global', NULL, 'qtd_enigmas',         4)    -- portas por sala
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 
