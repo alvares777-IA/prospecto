@@ -90,6 +90,10 @@ O catálogo (`enigma`) vem de `db/enigmas/` — `texto.csv` (100) + as
 páginas interativas `enigma-###.html` (100). Carregar/atualizar:
 
 ```bash
+# (uma vez) embaralha a ordem das opções nas páginas fonte — vinham com a
+# resposta sempre em 1º; a validação é no servidor, reordenar não quebra nada
+node jogoDaVida/db/embaralhar_opcoes.mjs
+
 # páginas servidas (copia p/ public/enigmas/ REMOVENDO o gabarito data-answer;
 # as páginas html só confirmam acerto dentro do jogo)
 node jogoDaVida/db/publicar_enigmas.mjs
