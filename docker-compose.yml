@@ -198,6 +198,8 @@ services:
       JV_APP_URL: ${JV_APP_URL:-http://localhost:3004}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_SENHA: ${ADMIN_SENHA:-trocar}
     volumes:
       - ./jogoDaVida/server:/app/server
       - ./jogoDaVida/public:/app/public

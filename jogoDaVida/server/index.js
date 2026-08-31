@@ -15,14 +15,17 @@ import * as sala from './sala.js';
 import * as persistencia from './persistencia.js';
 import * as jogo from './jogo.js';
 import { montarAuth, sessionMiddleware } from './auth.js';
+import { montarAdmin } from './admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));   // forms do /admin
 app.use(express.static(PUBLIC_DIR));
-montarAuth(app);   // sessão + /eu /cadastro /login /sair /auth/google
+montarAuth(app);    // sessão + /eu /cadastro /login /sair /auth/google
+montarAdmin(app);   // /admin — manutenção das tabelas de apoio
 
 app.get('/health', async (_req, res) => {
     let db = 'ok';

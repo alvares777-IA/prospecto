@@ -103,6 +103,13 @@ docker exec -i prospecto-ia-jogodavida-1 node --input-type=module - /tmp/enigmas
 Sequência: intercala `texto` e `html` (ordem 1,2,3,4… = csv#1, html#1,
 csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
 
+### Painel de manutenção
+
+`http://localhost:3004/admin` — CRUD das tabelas de apoio (`parametro`,
+`enigma`, `avatar`, `era`, `zona`, `eixo_destino`, `tipo_evento`,
+`regra_destino`, `limiar`). Login próprio: `ADMIN_USER` / `ADMIN_SENHA`
+no `.env`.
+
 ---
 
 ## Passo 6 — Rodar direto no host (opcional, iteração mais rápida)
