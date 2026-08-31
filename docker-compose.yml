@@ -194,6 +194,10 @@ services:
       PORT: 3004
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${JV_DB_NAME}
       NODE_ENV: development
+      JV_SESSION_SECRET: ${JV_SESSION_SECRET}
+      JV_APP_URL: ${JV_APP_URL:-http://localhost:3004}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes:
       - ./jogoDaVida/server:/app/server
       - ./jogoDaVida/public:/app/public

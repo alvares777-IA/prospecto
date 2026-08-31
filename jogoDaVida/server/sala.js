@@ -42,12 +42,17 @@ export function ehCriador(socketId) {
     return !!codigo && meta.get(codigo)?.criadorSocketId === socketId;
 }
 
-// A gravação no banco é assíncrona; quando o id da presença chega, anota aqui
-// para o disconnect saber qual linha carimbar.
-export function anotarPresenca(socketId, presencaId) {
+// A gravação no banco é assíncrona; quando confirma, anota aqui o id da
+// presença (para o disconnect carimbar) e a identidade (para apagar o anônimo).
+export function anotarGravacao(socketId, { presencaId, jogadorId, anonimo }) {
     for (const membros of salas.values()) {
         const m = membros.get(socketId);
-        if (m) { m.presencaId = presencaId; return; }
+        if (m) {
+            m.presencaId = presencaId;
+            m.jogadorId = jogadorId;
+            m.anonimo = anonimo;
+            return;
+        }
     }
 }
 

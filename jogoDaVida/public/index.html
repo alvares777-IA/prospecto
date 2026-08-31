@@ -10,26 +10,63 @@
 <body>
   <main class="container py-4" style="max-width: 640px">
 
-    <!-- 1. NOME + FIGURA -->
+    <!-- 1. IDENTIDADE + FIGURA -->
     <section id="tela-entrada">
       <h1 class="h4 mb-1">Jogo da Vida</h1>
       <p class="text-secondary small mb-4">Era: <span id="rotulo-era">…</span></p>
 
-      <div class="mb-3">
-        <label for="campo-nome" class="form-label">Seu nome</label>
-        <input type="text" id="campo-nome" class="form-control" maxlength="64"
-               autocomplete="off" placeholder="como querem te chamar aqui">
+      <div id="aviso-oauth" class="alert alert-warning py-2 d-none" role="alert"></div>
+
+      <!-- não logado: escolha do modo -->
+      <div id="painel-nao-logado">
+        <button id="btn-modo-anon" class="btn btn-primary w-100 mb-2">Entrar sem conta</button>
+        <button id="btn-modo-login" class="btn btn-outline-light w-100 mb-2">Entrar com e-mail e senha</button>
+        <a id="btn-modo-google" href="/auth/google" class="btn btn-outline-light w-100">Entrar com Google</a>
       </div>
 
-      <div class="mb-3">
-        <label class="form-label d-block">Escolha uma figura</label>
-        <div id="grade-avatares" class="d-flex flex-wrap gap-2">
-          <span class="text-secondary small">carregando…</span>
+      <!-- login -->
+      <div id="form-login" class="d-none">
+        <div class="mb-2"><input type="email" id="login-email" class="form-control" placeholder="e-mail" autocomplete="email"></div>
+        <div class="mb-2"><input type="password" id="login-senha" class="form-control" placeholder="senha" autocomplete="current-password"></div>
+        <div id="erro-login" class="alert alert-danger py-2 d-none"></div>
+        <button id="btn-login" class="btn btn-primary">Entrar</button>
+        <a href="#" id="link-cadastro" class="ms-2 small">criar conta</a>
+      </div>
+
+      <!-- cadastro -->
+      <div id="form-cadastro" class="d-none">
+        <div class="mb-2"><input type="text" id="cad-apelido" class="form-control" maxlength="64" placeholder="seu nome no jogo" autocomplete="nickname"></div>
+        <div class="mb-2"><input type="email" id="cad-email" class="form-control" placeholder="e-mail" autocomplete="email"></div>
+        <div class="mb-2"><input type="password" id="cad-senha" class="form-control" placeholder="senha (mín. 6)" autocomplete="new-password"></div>
+        <div id="erro-cadastro" class="alert alert-danger py-2 d-none"></div>
+        <button id="btn-cadastro" class="btn btn-primary">Criar conta</button>
+        <a href="#" id="link-login" class="ms-2 small">já tenho conta</a>
+      </div>
+
+      <!-- logado -->
+      <div id="painel-logado" class="d-none mb-3">
+        Olá, <strong id="saud-nome"></strong>.
+        <a href="#" id="btn-sair-conta" class="ms-2 small">sair da conta</a>
+      </div>
+
+      <!-- figura + continuar (comum a anônimo e logado) -->
+      <div id="bloco-figura" class="d-none">
+        <div id="campo-nome-wrap" class="mb-3 mt-3">
+          <label for="campo-nome" class="form-label">Seu nome</label>
+          <input type="text" id="campo-nome" class="form-control" maxlength="64"
+                 autocomplete="off" placeholder="como querem te chamar aqui">
         </div>
-      </div>
 
-      <div id="erro-entrada" class="alert alert-danger py-2 d-none" role="alert"></div>
-      <button id="btn-continuar" class="btn btn-primary">Continuar</button>
+        <div class="mb-3">
+          <label class="form-label d-block">Escolha uma figura</label>
+          <div id="grade-avatares" class="d-flex flex-wrap gap-2">
+            <span class="text-secondary small">carregando…</span>
+          </div>
+        </div>
+
+        <div id="erro-entrada" class="alert alert-danger py-2 d-none" role="alert"></div>
+        <button id="btn-continuar" class="btn btn-primary">Continuar</button>
+      </div>
     </section>
 
     <!-- 2. CRIAR OU ENTRAR NUMA SALA -->

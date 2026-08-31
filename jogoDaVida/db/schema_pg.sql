@@ -18,15 +18,28 @@
 -- 1. IDENTIDADE E TOPOLOGIA
 -- ---------------------------------------------------------------------
 
--- `identificador` = e-mail (login), `sub` do Google, ou id efêmero (anônimo).
+-- `identificador` é a chave estável da conta:
+--   e-mail (login por senha) | 'google:'<sub> | 'anon:'<uuid> (efêmero).
+-- Anônimo é gravado enquanto joga e APAGADO quando sai (docs: "perde tudo").
 CREATE TABLE IF NOT EXISTS jogador (
   id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   identificador  VARCHAR(120) NOT NULL UNIQUE,
   apelido        VARCHAR(64)  NOT NULL,
   avatar_codigo  VARCHAR(30),
   anonimo        CHAR(1)      NOT NULL DEFAULT 'S' CHECK (anonimo IN ('S','N')),
+  email          VARCHAR(120) UNIQUE,
+  senha_hash     VARCHAR(255),
+  google_id      VARCHAR(64)  UNIQUE,
   dt_criacao     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+
+-- Store de sessão HTTP (connect-pg-simple) para contas com login.
+CREATE TABLE IF NOT EXISTS sessoes (
+  sid    VARCHAR      NOT NULL PRIMARY KEY,
+  sess   JSON         NOT NULL,
+  expire TIMESTAMPTZ  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessoes_expire ON sessoes (expire);
 
 CREATE TABLE IF NOT EXISTS era (
   codigo      VARCHAR(30)  PRIMARY KEY,
@@ -65,7 +78,8 @@ CREATE TABLE IF NOT EXISTS sessao (
   codigo          VARCHAR(12)   UNIQUE,
   zona_id         BIGINT        NOT NULL REFERENCES zona(id),
   servidor_host   VARCHAR(120)  NOT NULL,
-  criador_id      BIGINT        REFERENCES jogador(id),
+  -- se o criador for um anônimo e ele sair, a sala continua (criador -> NULL)
+  criador_id      BIGINT        REFERENCES jogador(id) ON DELETE SET NULL,
   estado          VARCHAR(16)   NOT NULL DEFAULT 'aguardando'
                   CHECK (estado IN ('aguardando','em_jogo','encerrada')),
   dt_abertura     TIMESTAMPTZ   NOT NULL DEFAULT now(),
@@ -76,7 +90,8 @@ CREATE INDEX IF NOT EXISTS ix_sessao_abertas ON sessao (zona_id, dt_encerramento
 CREATE TABLE IF NOT EXISTS presenca (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   sessao_id   BIGINT       NOT NULL REFERENCES sessao(id),
-  jogador_id  BIGINT       NOT NULL REFERENCES jogador(id),
+  -- anônimo "perde tudo ao sair": apagar o jogador leva junto as presenças
+  jogador_id  BIGINT       NOT NULL REFERENCES jogador(id) ON DELETE CASCADE,
   dt_entrada  TIMESTAMPTZ  NOT NULL DEFAULT now(),
   dt_saida    TIMESTAMPTZ,
   CONSTRAINT uk_presenca UNIQUE (sessao_id, jogador_id, dt_entrada)

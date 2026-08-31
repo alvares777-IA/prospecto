@@ -1,13 +1,15 @@
 // Cliente.
-// Fluxo: nome + figura  ->  criar sala / entrar em sala  ->  dentro da sala.
-// Se a URL for /sala/CODIGO, pula a escolha e entra direto naquela sala.
+// Fluxo: identidade (anônimo / login / Google) + figura -> criar/entrar sala
+//        -> dentro da sala.  /sala/CODIGO pula a escolha da sala.
 // O navegador só coleta intenção e renderiza resultado. Nada de regra aqui.
 
 const estado = {
     catalogo: { avatares: [], eras: [] },
     avatarSelecionado: null,
-    jogador: null,            // { nome, avatar_codigo }
+    jogador: null,            // { nome?, avatar_codigo }
     salaAlvo: null,           // código vindo da URL, se houver
+    logado: false,
+    apelido: null,
     codigo: null,
     souCriador: false,
     persistido: false,        // a minha entrada já foi gravada no banco?
@@ -17,20 +19,88 @@ const estado = {
 let socket = null;
 
 $(async function () {
-    // /sala/ABCDE  ->  entra direto nessa sala depois do nome+figura
     const m = location.pathname.match(/^\/sala\/([A-Za-z0-9]{1,12})$/);
     if (m) estado.salaAlvo = m[1].toUpperCase();
 
-    await carregarCatalogo();
+    const errOAuth = new URLSearchParams(location.search).get('erro');
+    if (errOAuth === 'google') mostrar('#aviso-oauth', 'Não foi possível entrar com o Google.');
+    if (errOAuth === 'google_desligado') mostrar('#aviso-oauth', 'Login com Google não está configurado.');
 
+    await Promise.all([carregarEu(), carregarCatalogo()]);
+
+    // modo (não logado)
+    $('#btn-modo-anon').on('click', () => { trocarSecao('#bloco-figura'); $('#campo-nome').trigger('focus'); });
+    $('#btn-modo-login').on('click', () => trocarSecao('#form-login'));
+    $('#link-cadastro').on('click', e => { e.preventDefault(); trocarSecao('#form-cadastro'); });
+    $('#link-login').on('click', e => { e.preventDefault(); trocarSecao('#form-login'); });
+    $('#btn-login').on('click', fazerLogin);
+    $('#btn-cadastro').on('click', fazerCadastro);
+    $('#login-senha').on('keydown', e => { if (e.key === 'Enter') fazerLogin(); });
+    $('#cad-senha').on('keydown', e => { if (e.key === 'Enter') fazerCadastro(); });
+    $('#btn-sair-conta').on('click', async e => { e.preventDefault(); await fetch('/sair', { method: 'POST' }); location.reload(); });
+
+    // figura + sala
     $('#btn-continuar').on('click', continuar);
     $('#campo-nome').on('keydown', e => { if (e.key === 'Enter') continuar(); });
-    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', estado.jogador); });
+    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador()); });
     $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
     $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
     $('#btn-copiar').on('click', copiarLink);
     $('#btn-iniciar').on('click', () => socket && socket.emit('iniciar_jogo'));
 });
+
+async function carregarEu() {
+    let eu = { logado: false, googleAtivo: false };
+    try { eu = await (await fetch('/eu')).json(); } catch { /* segue deslogado */ }
+
+    if (!eu.googleAtivo) {
+        $('#btn-modo-google').addClass('disabled')
+            .attr('title', 'Configure GOOGLE_CLIENT_ID/SECRET e a redirect URI').removeAttr('href');
+    } else if (estado.salaAlvo) {
+        $('#btn-modo-google').attr('href', '/auth/google?sala=' + estado.salaAlvo);
+    }
+
+    if (eu.logado) {
+        estado.logado = true;
+        estado.apelido = eu.apelido;
+        $('#saud-nome').text(eu.apelido);
+        $('#painel-nao-logado, #form-login, #form-cadastro').addClass('d-none');
+        $('#campo-nome-wrap').addClass('d-none');   // já tem apelido da conta
+        $('#painel-logado, #bloco-figura').removeClass('d-none');
+    }
+}
+
+// Mostra uma seção de #tela-entrada e esconde as irmãs (menos #painel-logado).
+function trocarSecao(sel) {
+    $('#painel-nao-logado, #form-login, #form-cadastro, #bloco-figura').addClass('d-none');
+    $(sel).removeClass('d-none');
+}
+
+async function fazerLogin() {
+    const body = { email: $('#login-email').val().trim(), senha: $('#login-senha').val() };
+    const r = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.ok) return location.reload();
+    mostrar('#erro-login', (await r.json().catch(() => ({}))).erro || 'Não foi possível entrar.');
+}
+
+async function fazerCadastro() {
+    const body = {
+        apelido: $('#cad-apelido').val().trim(),
+        email: $('#cad-email').val().trim(),
+        senha: $('#cad-senha').val(),
+    };
+    const r = await fetch('/cadastro', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.ok) return location.reload();
+    mostrar('#erro-cadastro', (await r.json().catch(() => ({}))).erro || 'Não foi possível criar a conta.');
+}
+
+// Payload para criar_sala / entrar_sala. Logado -> só a figura (o servidor usa
+// a sessão); anônimo -> nome digitado + figura.
+function payloadJogador(extra) {
+    const p = { avatar_codigo: estado.jogador.avatar_codigo, ...extra };
+    if (!estado.logado) p.nome = estado.jogador.nome;
+    return p;
+}
 
 async function carregarCatalogo() {
     try {
@@ -60,16 +130,18 @@ function selecionarAvatar(codigo) {
     $(`#grade-avatares .tile-avatar[data-codigo="${codigo}"]`).addClass('selecionado');
 }
 
-// Passo 1 -> valida nome/figura e decide a próxima tela.
+// Valida figura (+ nome, se anônimo) e decide a próxima tela.
 function continuar() {
     const nome = $('#campo-nome').val().trim();
-    if (nome.length < 2) return mostrar('#erro-entrada', 'Digite um nome (ao menos 2 letras).');
+    if (!estado.logado && nome.length < 2) {
+        return mostrar('#erro-entrada', 'Digite um nome (ao menos 2 letras).');
+    }
     if (!estado.avatarSelecionado) return mostrar('#erro-entrada', 'Escolha uma figura.');
     estado.jogador = { nome, avatar_codigo: estado.avatarSelecionado };
 
     if (estado.salaAlvo) {
         conectar();
-        socket.emit('entrar_sala', { ...estado.jogador, codigo: estado.salaAlvo });
+        socket.emit('entrar_sala', payloadJogador({ codigo: estado.salaAlvo }));
     } else {
         trocarTela('#tela-sala-escolha');
         $('#campo-codigo').trigger('focus');
@@ -80,7 +152,7 @@ function entrarNaSalaDigitada() {
     const codigo = $('#campo-codigo').val().trim().toUpperCase();
     if (!codigo) return mostrar('#erro-sala', 'Digite o código da sala.');
     conectar();
-    socket.emit('entrar_sala', { ...estado.jogador, codigo });
+    socket.emit('entrar_sala', payloadJogador({ codigo }));
 }
 
 // Cria o socket e registra os ouvintes uma vez.

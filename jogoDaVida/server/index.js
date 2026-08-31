@@ -6,18 +6,22 @@
 import 'dotenv/config';
 import http from 'node:http';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server } from 'socket.io';
 import { pool, ping } from './db.js';
 import * as sala from './sala.js';
 import * as persistencia from './persistencia.js';
+import { montarAuth, sessionMiddleware } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 const app = express();
+app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
+montarAuth(app);   // sessão + /eu /cadastro /login /sair /auth/google
 
 app.get('/health', async (_req, res) => {
     let db = 'ok';
@@ -52,6 +56,9 @@ app.use((err, _req, res, _next) => {
 const httpServer = http.createServer(app);
 const io = new Server(httpServer);
 
+// O socket enxerga a mesma sessão HTTP -> sabe se há conta logada.
+io.engine.use(sessionMiddleware);
+
 // Código de sala: 5 caracteres, sem 0/O/1/I/L para não confundir na fala.
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function gerarCodigo() {
@@ -62,12 +69,31 @@ function gerarCodigo() {
     return c;
 }
 
-function lerJogador(dados) {
-    const j = {
-        nome: String(dados?.nome || '').trim().slice(0, 64),
-        avatar_codigo: String(dados?.avatar_codigo || '').slice(0, 30),
+// Quem é este socket: conta logada (via sessão) ou anônimo efêmero.
+// O anônimo ganha um identificador 'anon:'<uuid> UMA vez por socket, para o
+// retry ser idempotente e o disconnect saber o que apagar.
+function identidade(socket, dados) {
+    const avatar_codigo = String(dados?.avatar_codigo || '').slice(0, 30);
+    if (!avatar_codigo) return null;
+
+    const sess = socket.request?.session;
+    if (sess?.jogadorId) {
+        return {
+            identificador: sess.identificador,
+            apelido: sess.apelido,
+            avatar_codigo,
+            anonimo: false,
+        };
+    }
+    const nome = String(dados?.nome || '').trim().slice(0, 64);
+    if (!nome) return null;
+    if (!socket.data.anonIdent) socket.data.anonIdent = 'anon:' + randomUUID();
+    return {
+        identificador: socket.data.anonIdent,
+        apelido: nome,
+        avatar_codigo,
+        anonimo: true,
     };
-    return (j.nome && j.avatar_codigo) ? j : null;
 }
 
 async function avatarOk(codigo) {
@@ -83,13 +109,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Grava a entrada e FICA TENTANDO até conseguir (docs: "não pode ter falhas").
 // A sala já respondeu ao vivo; isto só destrava o "Iniciar jogo".
-async function gravarEntradaComRetry(socket, codigo, jogador, criando) {
+async function gravarEntradaComRetry(socket, codigo, ident, criando) {
     const espera = [1000, 2000, 4000, 8000];
     for (let i = 0; socket.connected; i++) {
         try {
-            const r = await persistencia.registrarEntradaEmSala({ ...jogador, salaCodigo: codigo, criando });
+            const r = await persistencia.registrarEntradaEmSala({ ...ident, salaCodigo: codigo, criando });
             if (r.erro) { console.warn(`[persistencia] ${codigo}: ${r.erro}`); return; }
-            sala.anotarPresenca(socket.id, r.presencaId);
+            sala.anotarGravacao(socket.id, { presencaId: r.presencaId, jogadorId: r.jogadorId, anonimo: r.anonimo });
             sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
             sala.marcarEstado(codigo, r.estado);
             socket.emit('presenca_confirmada', { codigo });
@@ -102,34 +128,36 @@ async function gravarEntradaComRetry(socket, codigo, jogador, criando) {
 }
 
 // Coloca o socket na sala (estado vivo + broadcast) e grava atrás.
-function ingressar(socket, codigo, jogador, { criando, souCriador, estado }) {
+function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
+    const jogador = { nome: ident.apelido, avatar_codigo: ident.avatar_codigo };
     socket.join(codigo);
     sala.entrar(codigo, socket.id, jogador, estado);
     socket.emit('sala_pronta', {
         codigo,
         souCriador,
         estado,
+        anonimo: ident.anonimo,
         voce: { socketId: socket.id, ...jogador },
         lista: sala.presentes(codigo),
     });
     io.to(codigo).emit('presentes', { codigo, lista: sala.presentes(codigo) });
     console.log(`[io] ${jogador.nome} ${criando ? 'criou' : 'entrou em'} ${codigo} (${sala.presentes(codigo).length})`);
 
-    gravarEntradaComRetry(socket, codigo, jogador, criando);
+    gravarEntradaComRetry(socket, codigo, ident, criando);
 }
 
 io.on('connection', (socket) => {
     console.log(`[io] conectou ${socket.id}`);
 
     socket.on('criar_sala', async (dados) => {
-        const jogador = lerJogador(dados);
-        if (!jogador || !(await avatarOk(jogador.avatar_codigo))) return;
-        ingressar(socket, gerarCodigo(), jogador, { criando: true, souCriador: true, estado: 'aguardando' });
+        const ident = identidade(socket, dados);
+        if (!ident || !(await avatarOk(ident.avatar_codigo))) return;
+        ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando' });
     });
 
     socket.on('entrar_sala', async (dados) => {
-        const jogador = lerJogador(dados);
-        if (!jogador || !(await avatarOk(jogador.avatar_codigo))) return;
+        const ident = identidade(socket, dados);
+        if (!ident || !(await avatarOk(ident.avatar_codigo))) return;
 
         const codigo = String(dados?.codigo || '').trim().toUpperCase().slice(0, 12);
         if (!codigo) return socket.emit('erro_sala', { motivo: 'Digite o código da sala.' });
@@ -141,7 +169,7 @@ io.on('connection', (socket) => {
             if (!info) return socket.emit('erro_sala', { motivo: 'Sala não encontrada.' });
             estado = info.estado;
         }
-        ingressar(socket, codigo, jogador, { criando: false, souCriador: false, estado });
+        ingressar(socket, codigo, ident, { criando: false, souCriador: false, estado });
     });
 
     socket.on('iniciar_jogo', async () => {
@@ -180,8 +208,14 @@ io.on('connection', (socket) => {
         const saiu = sala.sair(socket.id);
         if (saiu) {
             io.to(saiu.codigo).emit('presentes', { codigo: saiu.codigo, lista: sala.presentes(saiu.codigo) });
-            persistencia.registrarSaida(saiu.membro.presencaId)
-                .catch(err => console.warn('[persistencia] saída não gravada:', err.message));
+            const m = saiu.membro;
+            if (m.anonimo) {
+                // anônimo "perde tudo ao sair"
+                persistencia.apagarAnonimo(m.jogadorId);
+            } else {
+                persistencia.registrarSaida(m.presencaId)
+                    .catch(err => console.warn('[persistencia] saída não gravada:', err.message));
+            }
         }
         console.log(`[io] desconectou ${socket.id}`);
     });
