@@ -308,10 +308,10 @@ io.on('connection', (socket) => {
         try {
             const r = await jogo.darAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
             if (r.erro) return;
-            io.to(c.codigo).emit('chat_liberado', { codigo: c.codigo });
             socket.emit('energia', { energia: r.energiaDe });
+            // a resposta vai SÓ para quem pediu (não abre o chat da sala)
             alvoSocket.emit('ajuda_recebida', { de: c.eu.nome, porta: r.portaPara, resposta: r.resposta });
-            io.to(c.codigo).emit('ajudou', { de: c.eu.nome, para: alvo.nome });
+            io.to(c.codigo).emit('ajudou', { de: c.eu.nome, para: alvo.nome });   // feed: sem a resposta
         } catch (err) { console.warn('[jogo] dar_ajuda:', err.message); }
     });
 
@@ -323,7 +323,9 @@ io.on('connection', (socket) => {
         try {
             const r = await jogo.oferecerAjuda(c.sessaoId, c.eu.jogadorId, alvo.jogadorId);
             if (r.erro) return;
-            io.to(c.codigo).emit('chat_liberado', { codigo: c.codigo });   // libera o chat da sala
+            // chat abre só para os dois envolvidos na ajuda, não para a sala toda
+            socket.emit('chat_liberado', { codigo: c.codigo });
+            alvo.socket.emit('chat_liberado', { codigo: c.codigo });
             io.to(c.codigo).emit('ofereceu_ajuda', { de: c.eu.nome, para: alvo.nome, socketId: socket.id });
         } catch (err) { console.warn('[jogo] oferecer_ajuda:', err.message); }
     });

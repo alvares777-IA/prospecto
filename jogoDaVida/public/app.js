@@ -223,6 +223,7 @@ function conectar() {
         estado.jogo.porta = porta;
         $('#jogo-enigma').addClass('d-none');
         $('#jogo-iframe').attr('src', 'about:blank');
+        $('#resposta-recebida').addClass('d-none').empty();
         $('#jogo-fim').addClass('d-none');
         $('#hall').removeClass('d-none');
         $('#hall-proxima').text(`próxima: porta ${porta}${estado.jogo.total ? ' de ' + estado.jogo.total : ''}`);
@@ -246,6 +247,7 @@ function conectar() {
         $('#jogo-fim').addClass('d-none');
         $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`);
         $('#jogo-aviso').text('');
+        $('#resposta-recebida').addClass('d-none').empty();
 
         if (st.tipo === 'html' && st.arquivo) {
             // enigma interativo: a própria página valida e avisa por postMessage
@@ -307,8 +309,13 @@ function conectar() {
             .text(`Resposta no chat: -${penalidade}% de energia para todos.`);
     });
     socket.on('ajuda_recebida', ({ de, porta, resposta }) => {
-        feed(`${de} te passou a resposta da porta ${porta}: ${resposta}`);
-        $('#jogo-aviso').removeClass('text-danger').addClass('text-success').text(`Dica de ${de}: ${resposta}`);
+        feed(`${de} te passou a resposta da porta ${porta}`);
+        // elemento próprio, visível só para quem recebeu — não passa pelo chat
+        const $b = $('#resposta-recebida').empty().removeClass('d-none');
+        $('<span>').text('🔑 ').appendTo($b);
+        $('<strong>').text(de).appendTo($b);
+        $('<span>').text(` te passou a resposta da porta ${porta}: `).appendTo($b);
+        $('<strong>').text(resposta).appendTo($b);
     });
     socket.on('jogo_terminado', ({ porta, energia }) => {
         estado.jogo.noHall = false;
