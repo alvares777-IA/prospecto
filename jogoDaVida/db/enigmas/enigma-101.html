@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="pt-BR" data-answer="300" data-nivel="Jogo" data-titulo="Paddle">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paddle — jogoDaVida</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1;flex-wrap:wrap;justify-content:center}
+  .hud b{color:#e2e8f0}
+  .efeitos{min-height:18px;font-size:12px;color:#facc15;display:flex;gap:12px}
+  canvas{background:#0d1224;border:1px solid #1e2a45;border-radius:10px;touch-action:none}
+  .aviso{min-height:22px;font-size:14px;font-weight:600;text-align:center;max-width:520px}
+  .aviso.ok{color:#22c55e}
+  .aviso.erro{color:#ef4444}
+  .aviso.info{color:#94a3b8}
+  button{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer}
+  button:disabled{background:#334155;cursor:default;opacity:.6}
+  button.secundario{background:#334155}
+  .botoes{display:flex;gap:8px}
+  .ajuda{font-size:12px;color:#64748b;max-width:480px;text-align:center;margin:0}
+</style>
+</head>
+<body>
+<div class="tela">
+  <h1>Paddle</h1>
+  <div class="hud">Fase: <b id="nivel">1/1</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Vidas: <b id="vidas">3</b> &nbsp;·&nbsp; Meta: <b id="meta">300</b></div>
+  <div class="efeitos" id="efeitos"></div>
+  <canvas id="c" width="480" height="380"></canvas>
+  <div class="aviso info" id="aviso">← → ou mouse para mover. Espaço lança a bola.</div>
+  <div class="botoes">
+    <button id="btnEnviar" disabled>Enviar pontuação</button>
+    <button id="btnReiniciar" class="secundario">Reiniciar</button>
+  </div>
+  <p class="ajuda">Especiais: 💣 bomba (a bola que bater some — 5 tiros a explodem sem perigo e ainda levam os vizinhos) ·
+  ×5 solta 5 bolas · 2× dobra os pontos por 30s · ↔ raquete larga · ♥ vida extra · blocos de aço pedem 2 golpes.</p>
+</div>
+<script src="fim-jogo.js"></script>
+<script>
+(function () {
+  const embutido = window.parent && window.parent !== window;
+  const META = Number(document.documentElement.getAttribute('data-answer')) || 300;
+  document.getElementById('meta').textContent = META;
+
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+
+  // A física usa W/H fixos (resolução lógica do canvas); só o TAMANHO NA TELA
+  // estica pra aproveitar o espaço (tela cheia). A folga vertical é medida de
+  // verdade — senão o canvas empurra os botões pra fora da área visível.
+  function ajustarTamanho() {
+    const tela = document.querySelector('.tela');
+    const folga = [...tela.children].filter(el => el !== cv)
+        .reduce((soma, el) => soma + el.offsetHeight, 0)
+      + tela.children.length * 8 + 28 + 16;
+    const escala = Math.min((window.innerWidth - 24) / W, (window.innerHeight - folga) / H);
+    cv.style.width = Math.round(W * Math.max(escala, 0.3)) + 'px';
+    cv.style.height = Math.round(H * Math.max(escala, 0.3)) + 'px';
+  }
+  window.addEventListener('resize', ajustarTamanho);
+  ajustarTamanho();
+
+  const $pontos = document.getElementById('pontos'), $vidas = document.getElementById('vidas');
+  const $nivel = document.getElementById('nivel'), $efeitos = document.getElementById('efeitos');
+  const $aviso = document.getElementById('aviso');
+  const $btnEnviar = document.getElementById('btnEnviar'), $btnReiniciar = document.getElementById('btnReiniciar');
+
+  // Valores do servidor (parâmetros + níveis do enigma). Estes são só o padrão
+  // até a resposta chegar.
+  const cfg = { tiro: 1, grudar: 5, niveis: 1 };
+  const textoControles = () =>
+    `← → ou mouse movem. Espaço lança. ↑ atira (−${cfg.tiro}% energia). ↓ traz a bola de volta (−${cfg.grudar}%).`;
+
+  const LARG_NORMAL = 70, LARG_LARGA = 112;
+  const DOBRO_MS = 30000, LARGA_MS = 20000;
+  const VIDA_BOMBA = 5;
+
+  let pontos, vidas, nivel, tijolos, paddle, bolas, tiros, particulas;
+  let fimDeJogo, resolvido, pausaAte, dobroAte, largaAte;
+  let aguardandoTiro = false, aguardandoGrudar = false, ultimoPedido = 0;
+
+  // ── níveis e blocos ──
+  const CORES = ['#ef4444', '#f97316', '#facc15', '#22c55e', '#38bdf8', '#a78bfa', '#f472b6', '#2dd4bf'];
+  function montarNivel(n) {
+    const cols = 9, gap = 4, tw = (W - gap * (cols + 1)) / cols, th = 16, offY = 34;
+    const linhas = Math.min(5 + n, 8);
+    const formato = (n - 1) % 4;     // 0 cheio · 1 xadrez · 2 pirâmide · 3 buracos
+    const lista = [];
+    for (let r = 0; r < linhas; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (formato === 1 && (r + c) % 2 === 1) continue;
+        if (formato === 2 && (c < r - 1 || c > cols - r)) continue;
+        if (formato === 3 && Math.random() < 0.22) continue;
+        lista.push({ x: gap + c * (tw + gap), y: offY + r * (th + gap), w: tw, h: th, vivo: true, cor: CORES[r % CORES.length], tipo: 'normal', vida: 1 });
+      }
+    }
+    // especiais sorteados em blocos diferentes
+    const livres = lista.slice();
+    const sortear = () => livres.splice(Math.floor(Math.random() * livres.length), 1)[0];
+    const marcar = (tipo, extra) => { const b = sortear(); if (b) Object.assign(b, { tipo }, extra); };
+    marcar('bomba', { vida: VIDA_BOMBA });
+    marcar('multi');
+    marcar('dobro');
+    marcar('larga');
+    if (Math.random() < 0.35) marcar('vida');
+    const aco = Math.min(2 * (n - 1), 8);
+    for (let i = 0; i < aco; i++) marcar('aco', { vida: 2 });
+    return lista;
+  }
+
+  function bolaPresa() {
+    return { r: 6, x: paddle.x + paddle.w / 2, y: paddle.y - 8, vx: 0, vy: 0, presa: true };
+  }
+  const velBola = () => 4.2 + 0.4 * (nivel - 1);
+
+  function novoJogo() {
+    FimJogo.esconder();
+    pontos = 0; vidas = 3; nivel = 1; fimDeJogo = false; resolvido = false;
+    aguardandoTiro = false; aguardandoGrudar = false;
+    iniciarNivel();
+    avisar(textoControles(), 'info');
+    $btnEnviar.disabled = true;
+    atualizarHud();
+  }
+
+  function iniciarNivel() {
+    paddle = { w: LARG_NORMAL, h: 10, x: (W - LARG_NORMAL) / 2, y: H - 24, vel: 6 };
+    tijolos = montarNivel(nivel);
+    bolas = [bolaPresa()];
+    tiros = []; particulas = [];
+    dobroAte = 0; largaAte = 0;
+    pausaAte = performance.now() + 1100;   // mostra "Fase N" antes de começar
+  }
+
+  function atualizarHud() {
+    $pontos.textContent = pontos; $vidas.textContent = vidas;
+    $nivel.textContent = nivel + '/' + cfg.niveis;
+  }
+  function avisar(t, tipo) { $aviso.className = 'aviso ' + (tipo || 'info'); $aviso.textContent = t; }
+
+  // ── som (WebAudio sintetizado) ──
+  let actx = null;
+  function iniciarAudio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (err) {}
+  }
+  function bip(freq, dur, atraso, tipo) {
+    iniciarAudio();
+    if (!actx) return;
+    try {
+      const t = actx.currentTime + (atraso || 0);
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = tipo || 'square'; o.frequency.value = freq;
+      o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (err) {}
+  }
+  const som = {
+    lancar: () => bip(440, 0.05, 0, 'triangle'),
+    tiro: () => { bip(1200, 0.04, 0, 'square'); bip(800, 0.05, 0.03, 'square'); },
+    parede: () => bip(220, 0.04),
+    raquete: () => bip(330, 0.05),
+    tijolo: () => bip(660, 0.06),
+    aco: () => { bip(1400, 0.05, 0, 'triangle'); bip(2100, 0.08, 0.01, 'sine'); },
+    bomba: () => { bip(90, 0.35, 0, 'sawtooth'); bip(60, 0.4, 0.05, 'sawtooth'); bip(140, 0.2, 0.02, 'square'); },
+    poder: () => { bip(660, 0.06); bip(880, 0.06, 0.06); bip(1320, 0.1, 0.12); },
+    vida: () => { bip(200, 0.16, 0, 'sawtooth'); bip(120, 0.22, 0.14, 'sawtooth'); },
+    nivel: () => { bip(523, 0.09); bip(784, 0.09, 0.1); bip(1047, 0.2, 0.2); },
+    vitoria: () => { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.2, 0.27); },
+    fim: () => { bip(320, 0.14); bip(220, 0.24, 0.12); },
+  };
+  document.addEventListener('pointerdown', iniciarAudio, true);
+  document.addEventListener('keydown', iniciarAudio, true);
+
+  // ── ações ──
+  function lancar() {
+    if (fimDeJogo || performance.now() < pausaAte) return;
+    const presa = bolas.find(b => b.presa);
+    if (!presa) return;
+    const ang = (Math.random() - 0.5) * (Math.PI / 3);
+    presa.presa = false;
+    presa.vx = velBola() * Math.sin(ang) || velBola() * 0.4;
+    presa.vy = -velBola() * Math.cos(ang);
+    som.lancar();
+  }
+
+  function somar(base) {
+    const v = base * (performance.now() < dobroAte ? 2 : 1);
+    pontos += v; atualizarHud();
+    $btnEnviar.disabled = pontos <= 0;
+    return v;
+  }
+
+  function estourar(x, y, cor, n = 10) {
+    for (let i = 0; i < n; i++) particulas.push({ x, y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, cor, vida: 40 });
+  }
+
+  // Um golpe num bloco (bola ou tiro). Devolve true se a BOLA deve sumir.
+  function golpear(b, porTiro) {
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (b.tipo === 'bomba') {
+      if (porTiro) {
+        b.vida--;
+        som.aco();
+        if (b.vida <= 0) explodirBomba(b, true);
+        return false;
+      }
+      explodirBomba(b, false);    // bateu com a bola: explode e leva a bola
+      return true;
+    }
+    if (b.tipo === 'aco' && b.vida > 1) { b.vida--; som.aco(); estourar(cx, cy, '#cbd5e1', 4); return false; }
+    b.vivo = false;
+    estourar(cx, cy, b.cor);
+    somar(b.tipo === 'aco' ? 20 : 10);
+    som.tijolo();
+    const agora = performance.now();
+    if (b.tipo === 'multi') {
+      for (let i = 0; i < 5; i++) {
+        const ang = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 0.9);
+        bolas.push({ r: 6, x: cx, y: cy + 10, vx: velBola() * Math.cos(ang), vy: velBola() * Math.sin(ang), presa: false });
+      }
+      som.poder(); avisar('×5 bolas!', 'ok');
+    } else if (b.tipo === 'dobro') {
+      dobroAte = agora + DOBRO_MS; som.poder(); avisar('Pontos em dobro por 30 segundos!', 'ok');
+    } else if (b.tipo === 'larga') {
+      largaAte = agora + LARGA_MS; som.poder(); avisar('Raquete larga!', 'ok');
+    } else if (b.tipo === 'vida') {
+      vidas++; atualizarHud(); som.poder(); avisar('+1 vida!', 'ok');
+    }
+    return false;
+  }
+
+  // Bomba: pela bola, some sem pontos e leva a bola junto. Por 5 tiros,
+  // explode "do jeito certo": leva os blocos vizinhos e eles contam pontos.
+  function explodirBomba(b, seguro) {
+    b.vivo = false;
+    som.bomba();
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    estourar(cx, cy, '#f97316', 30); estourar(cx, cy, '#facc15', 20);
+    if (!seguro) { avisar('💣 A bola bateu na bomba e se perdeu!', 'erro'); return; }
+    let levou = 0;
+    for (const o of tijolos) {
+      if (!o.vivo || o === b) continue;
+      if (Math.abs(o.x + o.w / 2 - cx) < b.w * 1.6 && Math.abs(o.y + o.h / 2 - cy) < b.h * 2.6) {
+        o.vivo = false; estourar(o.x + o.w / 2, o.y + o.h / 2, o.cor, 6);
+        levou += o.tipo === 'aco' ? 20 : 10;
+        if (o.tipo === 'bomba') explodirBomba(o, true);
+      }
+    }
+    if (levou) somar(levou);
+    avisar(`💥 Bomba desarmada a tiros! Levou os vizinhos (+${levou}).`, 'ok');
+  }
+
+  function perderBola(bola) {
+    bolas = bolas.filter(x => x !== bola);
+    if (bolas.length) return;
+    vidas--; atualizarHud(); som.vida();
+    if (vidas <= 0) { terminar(false); return; }
+    bolas = [bolaPresa()];
+    avisar('Você perdeu a bola. Espaço para lançar de novo.', 'erro');
+  }
+
+  function nivelCompleto() {
+    if (nivel >= cfg.niveis) { terminar(true); return; }
+    const bonus = somar(50);
+    nivel++; atualizarHud(); som.nivel();
+    avisar(`Fase ${nivel - 1} completa! +${bonus}. Agora a fase ${nivel}.`, 'ok');
+    iniciarNivel();
+  }
+
+  function terminar(venceuTudo) {
+    if (fimDeJogo) return;
+    fimDeJogo = true;
+    if (venceuTudo) { avisar(`Todas as ${cfg.niveis} fase(s)! Pontuação final: ${pontos}.`, 'ok'); som.vitoria(); }
+    else { avisar('Fim de jogo. Pontuação final: ' + pontos + '.', 'info'); som.fim(); }
+    FimJogo.mostrar({
+      venceu: venceuTudo, pontos, meta: META, embutido,
+      titulo: venceuTudo ? 'Paddle completado!' : 'Fim de jogo',
+      detalhe: venceuTudo ? `Você passou pelas ${cfg.niveis} fase(s).` : `Acabaram as vidas na fase ${nivel}.`,
+      aoEnviar: enviarTentativa, aoRepetir: novoJogo,
+    });
+  }
+
+  function enviarTentativa() {
+    if (resolvido) return;
+    if (!embutido) { avisar('Abra este jogo pelo jogoDaVida para valer.', 'erro'); return; }
+    window.parent.postMessage({ tipo: 'tentativa', valor: String(pontos) }, location.origin);
+  }
+
+  // Tiro / grudar: quem cobra a energia é o servidor. O jogo PEDE à página e
+  // só age quando ela confirma. Fora do jogoDaVida, livre.
+  function pedirTiro() {
+    if (fimDeJogo || aguardandoTiro || tiros.length >= 3 || performance.now() < pausaAte) return;
+    const agora = Date.now();
+    if (agora - ultimoPedido < 250) return;
+    ultimoPedido = agora;
+    if (!embutido) { disparar(); return; }
+    aguardandoTiro = true;
+    window.parent.postMessage({ tipo: 'pedir_gasto', motivo: 'tiro' }, location.origin);
+  }
+  function disparar() { tiros.push({ x: paddle.x + paddle.w / 2, y: paddle.y - 2 }); som.tiro(); }
+
+  function pedirGrudar() {
+    if (fimDeJogo || aguardandoGrudar || !bolas.some(b => !b.presa) || bolas.some(b => b.presa)) return;
+    if (!embutido) { grudar(); return; }
+    aguardandoGrudar = true;
+    window.parent.postMessage({ tipo: 'pedir_gasto', motivo: 'grudar' }, location.origin);
+  }
+  // A bola em mais perigo (a mais baixa) volta pra raquete; as outras seguem.
+  function grudar() {
+    const livres = bolas.filter(b => !b.presa);
+    if (fimDeJogo || !livres.length) return;
+    const b = livres.reduce((a, c) => (c.y > a.y ? c : a));
+    Object.assign(b, { presa: true, vx: 0, vy: 0, x: paddle.x + paddle.w / 2, y: paddle.y - 8 });
+    bip(300, 0.06, 0, 'triangle'); bip(450, 0.06, 0.05, 'triangle');
+    avisar('Bola de volta na raquete. Espaço para lançar.', 'info');
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'config') {
+      const v = d.valores || {};
+      if (Number.isFinite(v.tiro)) cfg.tiro = v.tiro;
+      if (Number.isFinite(v.grudar)) cfg.grudar = v.grudar;
+      if (Number.isFinite(v.niveis) && v.niveis >= 1) cfg.niveis = Math.floor(v.niveis);
+      atualizarHud();
+      if (!fimDeJogo && bolas.every(b => b.presa)) avisar(textoControles(), 'info');
+      return;
+    }
+    if (d.tipo === 'gasto_ok') {
+      if (d.pedido === 'grudar') { aguardandoGrudar = false; grudar(); }
+      else { aguardandoTiro = false; disparar(); }
+      return;
+    }
+    if (d.tipo === 'gasto_negado') {
+      if (d.pedido === 'grudar') aguardandoGrudar = false; else aguardandoTiro = false;
+      if (d.motivo === 'sem_energia') avisar(d.pedido === 'grudar' ? 'Sem energia para trazer a bola.' : 'Sem energia para atirar.', 'erro');
+      return;
+    }
+    if (d.tipo !== 'resultado') return;
+    FimJogo.resultado(!!d.correto);
+    if (d.correto) {
+      resolvido = true;
+      avisar('✓ Resolvido! Pontuação ' + pontos + ' (meta ' + META + ').', 'ok');
+      $btnEnviar.disabled = true;
+    } else {
+      avisar('Ainda não chegou na meta (' + META + '). Continue jogando ou reinicie.', 'erro');
+      $btnEnviar.disabled = pontos <= 0;
+    }
+  });
+
+  // ── controles ──
+  const teclas = {};
+  window.addEventListener('keydown', function (e) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+    teclas[e.key] = true;
+    if (e.key === ' ') lancar();
+    if (e.key === 'ArrowUp') pedirTiro();
+    if (e.key === 'ArrowDown' && !e.repeat) pedirGrudar();
+  });
+  window.addEventListener('keyup', function (e) { teclas[e.key] = false; });
+  cv.addEventListener('mousemove', function (e) {
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (W / rect.width);
+    paddle.x = Math.max(0, Math.min(W - paddle.w, x - paddle.w / 2));
+  });
+  cv.addEventListener('click', lancar);
+  $btnEnviar.addEventListener('click', enviarTentativa);
+  $btnReiniciar.addEventListener('click', novoJogo);
+
+  // ── laço ──
+  function moverBola(b) {
+    b.x += b.vx; b.y += b.vy;
+    if (b.x - b.r < 0) { b.x = b.r; b.vx = Math.abs(b.vx); som.parede(); }
+    if (b.x + b.r > W) { b.x = W - b.r; b.vx = -Math.abs(b.vx); som.parede(); }
+    if (b.y - b.r < 0) { b.y = b.r; b.vy = Math.abs(b.vy); som.parede(); }
+
+    if (b.vy > 0 && b.y + b.r >= paddle.y && b.y + b.r <= paddle.y + paddle.h + 6 &&
+        b.x >= paddle.x - b.r && b.x <= paddle.x + paddle.w + b.r) {
+      const rel = Math.max(-1, Math.min(1, (b.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2)));
+      const ang = rel * (Math.PI / 3), v = velBola();
+      b.vx = v * Math.sin(ang); b.vy = -Math.abs(v * Math.cos(ang));
+      som.raquete();
+    }
+
+    for (const t of tijolos) {
+      if (!t.vivo) continue;
+      if (b.x + b.r > t.x && b.x - b.r < t.x + t.w && b.y + b.r > t.y && b.y - b.r < t.y + t.h) {
+        // rebate no eixo de menor sobreposição (quina não "atravessa")
+        const sx = Math.min(b.x + b.r - t.x, t.x + t.w - (b.x - b.r));
+        const sy = Math.min(b.y + b.r - t.y, t.y + t.h - (b.y - b.r));
+        if (sx < sy) b.vx *= -1; else b.vy *= -1;
+        if (golpear(t, false)) return perderBola(b);
+        break;
+      }
+    }
+    if (b.y - b.r > H) perderBola(b);
+  }
+
+  function passo(ts) {
+    const agora = performance.now();
+    if (!fimDeJogo) {
+      paddle.w = agora < largaAte ? LARG_LARGA : LARG_NORMAL;
+      if (teclas.ArrowLeft) paddle.x -= paddle.vel;
+      if (teclas.ArrowRight) paddle.x += paddle.vel;
+      paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+
+      if (agora >= pausaAte) {
+        for (const b of bolas.slice()) {
+          if (b.presa) { b.x = paddle.x + paddle.w / 2; b.y = paddle.y - 8; }
+          else moverBola(b);
+          if (fimDeJogo) break;
+        }
+        for (const t of tiros) {
+          t.y -= 7;
+          for (const b of tijolos) {
+            if (b.vivo && t.x > b.x && t.x < b.x + b.w && t.y > b.y && t.y < b.y + b.h) {
+              t.y = -99; golpear(b, true); break;
+            }
+          }
+        }
+        tiros = tiros.filter(t => t.y > -10);
+        if (!fimDeJogo && !tijolos.some(t => t.vivo)) nivelCompleto();
+      } else {
+        for (const b of bolas) if (b.presa) { b.x = paddle.x + paddle.w / 2; b.y = paddle.y - 8; }
+      }
+    }
+    for (const p of particulas) { p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.vida--; }
+    particulas = particulas.filter(p => p.vida > 0);
+    desenhar(agora);
+    requestAnimationFrame(passo);
+  }
+
+  function desenhar(agora) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const t of tijolos) {
+      if (!t.vivo) continue;
+      if (t.tipo === 'bomba') {
+        ctx.fillStyle = '#1f2937'; ctx.fillRect(t.x, t.y, t.w, t.h);
+        ctx.strokeStyle = Math.floor(agora / 250) % 2 ? '#ef4444' : '#f97316'; ctx.lineWidth = 2;
+        ctx.strokeRect(t.x + 1, t.y + 1, t.w - 2, t.h - 2);
+        ctx.font = '11px system-ui'; ctx.fillStyle = '#fff';
+        ctx.fillText('💣' + (t.vida < VIDA_BOMBA ? ' ' + t.vida : ''), t.x + t.w / 2, t.y + t.h / 2 + 1);
+      } else if (t.tipo === 'aco') {
+        const g = ctx.createLinearGradient(t.x, t.y, t.x, t.y + t.h);
+        g.addColorStop(0, t.vida > 1 ? '#e2e8f0' : '#94a3b8'); g.addColorStop(1, '#475569');
+        ctx.fillStyle = g; ctx.fillRect(t.x, t.y, t.w, t.h);
+        ctx.fillStyle = '#334155';
+        [[3, 3], [t.w - 5, 3], [3, t.h - 5], [t.w - 5, t.h - 5]].forEach(([dx, dy]) => ctx.fillRect(t.x + dx, t.y + dy, 2, 2));
+        if (t.vida <= 1) { ctx.strokeStyle = '#1e293b'; ctx.beginPath(); ctx.moveTo(t.x + 8, t.y + 2); ctx.lineTo(t.x + 20, t.y + t.h - 3); ctx.stroke(); }
+      } else {
+        ctx.fillStyle = t.cor; ctx.fillRect(t.x, t.y, t.w, t.h);
+        const rotulo = { multi: '×5', dobro: '2×', larga: '↔', vida: '♥' }[t.tipo];
+        if (rotulo) {
+          ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fillRect(t.x + 2, t.y + 2, t.w - 4, t.h - 4);
+          ctx.fillStyle = t.tipo === 'vida' ? '#dc2626' : '#0f172a'; ctx.font = 'bold 11px system-ui';
+          ctx.fillText(rotulo, t.x + t.w / 2, t.y + t.h / 2 + 1);
+        }
+      }
+    }
+    ctx.fillStyle = '#facc15';
+    for (const t of tiros) ctx.fillRect(t.x - 1.5, t.y - 8, 3, 8);
+    ctx.fillStyle = agora < largaAte ? '#38bdf8' : '#e2e8f0';
+    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+    for (const b of bolas) {
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = agora < dobroAte ? '#f472b6' : '#facc15'; ctx.fill();
+    }
+    for (const p of particulas) { ctx.globalAlpha = Math.max(0, p.vida / 40); ctx.fillStyle = p.cor; ctx.fillRect(p.x, p.y, 3, 3); }
+    ctx.globalAlpha = 1;
+    if (agora < pausaAte && !fimDeJogo) {
+      ctx.fillStyle = 'rgba(13,18,36,.7)'; ctx.fillRect(0, H / 2 - 30, W, 60);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 26px system-ui';
+      ctx.fillText(`Fase ${nivel}`, W / 2, H / 2);
+    }
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+
+    const ef = [];
+    if (agora < dobroAte) ef.push(`2× pontos ${Math.ceil((dobroAte - agora) / 1000)}s`);
+    if (agora < largaAte) ef.push(`↔ larga ${Math.ceil((largaAte - agora) / 1000)}s`);
+    if (bolas.length > 1) ef.push(`${bolas.length} bolas`);
+    const txt = ef.join(' · ');
+    if ($efeitos.textContent !== txt) $efeitos.textContent = txt;
+  }
+
+  if (!embutido) avisar('Abra este jogo pelo jogoDaVida para valer a pena.', 'erro');
+  novoJogo();
+  if (embutido) window.parent.postMessage({ tipo: 'pedir_config' }, location.origin);
+  requestAnimationFrame(passo);
+})();
+</script>
+</body></html>

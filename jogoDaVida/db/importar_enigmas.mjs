@@ -48,8 +48,11 @@ function lerHtml(html, arquivo) {
 }
 
 const csv = parseCsv(fs.readFileSync(path.join(DIR, 'texto.csv'), 'utf8'));
+// só os 100 enigmas de quiz (enigma-001..100.html); enigma-101+ são jogos
+// arcade (tipo 'jogo'), importados à parte por db/importar_jogos.mjs.
 const htmls = fs.readdirSync(DIR)
-    .filter(f => /^enigma-\d+\.html$/.test(f)).sort()
+    .filter(f => { const m = f.match(/^enigma-(\d+)\.html$/); return m && Number(m[1]) <= 100; })
+    .sort()
     .map(f => lerHtml(fs.readFileSync(path.join(DIR, f), 'utf8'), f));
 
 const linhas = [];

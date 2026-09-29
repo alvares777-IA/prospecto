@@ -21,15 +21,22 @@ export async function avataresValidos() {
     return _avatares;
 }
 
-// Sessão aberta com este código, se houver: { sessaoId, estado, modo }.
+// Sessão aberta com este código, se houver: { sessaoId, estado }.
 export async function salaInfo(codigo) {
     const r = await pool.query(
-        `SELECT id, estado, modo FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
+        `SELECT id, estado FROM sessao WHERE codigo = $1 AND dt_encerramento IS NULL`,
         [codigo],
     );
-    return r.rows[0]
-        ? { sessaoId: r.rows[0].id, estado: r.rows[0].estado, modo: r.rows[0].modo }
-        : null;
+    return r.rows[0] ? { sessaoId: r.rows[0].id, estado: r.rows[0].estado } : null;
+}
+
+// Marca a sessão como encerrada (game over da sala).
+export async function encerrarSessao(sessaoId) {
+    await pool.query(
+        `UPDATE sessao SET estado = 'encerrada', dt_encerramento = COALESCE(dt_encerramento, now())
+          WHERE id = $1 AND estado <> 'encerrada'`,
+        [sessaoId],
+    );
 }
 
 // Marca a sessão como em jogo. Devolve true se mudou (estava 'aguardando').
@@ -102,10 +109,9 @@ export async function apagarAnonimo(jogadorId) {
 // Numa transação: upsert do jogador por identificador (conta estável ou
 // 'anon:'<uuid> gerado uma vez por socket) + get-or-create da sessão da
 // sala + linha de presença.
-// Devolve { jogadorId, anonimo, energiaPessoal, sessaoId, estado, modo,
-//           presencaId, souCriador } ou { erro }.
-export async function registrarEntradaEmSala({ identificador, apelido, avatar_codigo, anonimo, salaCodigo, criando, modo }) {
-    const modoSala = modo === 'coop' ? 'coop' : 'individual';
+// Devolve { jogadorId, anonimo, sessaoId, estado, presencaId, souCriador }
+// ou { erro }.
+export async function registrarEntradaEmSala({ identificador, apelido, avatar_codigo, anonimo, salaCodigo, criando }) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -116,7 +122,7 @@ export async function registrarEntradaEmSala({ identificador, apelido, avatar_co
              ON CONFLICT (identificador) DO UPDATE
                 SET apelido = EXCLUDED.apelido,
                     avatar_codigo = EXCLUDED.avatar_codigo
-             RETURNING id, anonimo, energia`,
+             RETURNING id, anonimo`,
             [identificador, apelido, avatar_codigo, anonimo ? 'S' : 'N'],
         );
         const jogadorId = jog.rows[0].id;
@@ -125,28 +131,26 @@ export async function registrarEntradaEmSala({ identificador, apelido, avatar_co
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sala:${salaCodigo}`]);
 
         const achou = await client.query(
-            `SELECT id, criador_id, estado, modo FROM sessao
+            `SELECT id, criador_id, estado FROM sessao
               WHERE codigo = $1 AND dt_encerramento IS NULL`,
             [salaCodigo],
         );
 
-        let sessaoId, criadorId, estado, modoSess;
+        let sessaoId, criadorId, estado;
         if (achou.rows[0]) {
             sessaoId  = achou.rows[0].id;
             criadorId = achou.rows[0].criador_id;
             estado    = achou.rows[0].estado;
-            modoSess  = achou.rows[0].modo;
         } else if (criando) {
             const nova = await client.query(
-                `INSERT INTO sessao (codigo, zona_id, servidor_host, criador_id, modo)
-                 SELECT $1, z.id, $2, $3, $4 FROM zona z WHERE z.codigo = 'SALA_A'
-                 RETURNING id, estado, modo`,
-                [salaCodigo, HOST, jogadorId, modoSala],
+                `INSERT INTO sessao (codigo, zona_id, servidor_host, criador_id)
+                 SELECT $1, z.id, $2, $3 FROM zona z WHERE z.codigo = 'SALA_A'
+                 RETURNING id, estado`,
+                [salaCodigo, HOST, jogadorId],
             );
             sessaoId  = nova.rows[0].id;
             criadorId = jogadorId;
             estado    = nova.rows[0].estado;
-            modoSess  = nova.rows[0].modo;
         } else {
             await client.query('ROLLBACK');
             return { erro: 'sala_inexistente' };
@@ -161,10 +165,8 @@ export async function registrarEntradaEmSala({ identificador, apelido, avatar_co
         return {
             jogadorId,
             anonimo: jog.rows[0].anonimo === 'S',
-            energiaPessoal: Math.round(Number(jog.rows[0].energia)),
             sessaoId,
             estado,
-            modo: modoSess,
             presencaId: pres.rows[0].id,
             souCriador: criadorId === jogadorId,
         };

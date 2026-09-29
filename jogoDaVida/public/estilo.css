@@ -46,6 +46,16 @@ code { color: #38bdf8; }
     padding: 12px;
     background: #0d1224;
 }
+
+/* Mudança de ambiente: a cor de fundo do painel e da página muda ao trocar
+   de sala (sorteada por porta) e ao entrar/sair do hall (cor fixa). */
+#painel-controles { transition: background-color .4s ease; }
+body { transition: background-color .4s ease; }
+#hall {
+    border-left: 3px solid #7c8aa5;
+    padding-left: 12px;
+    margin-left: -4px;
+}
 .painel-titulo {
     font-size: 12px;
     font-weight: 600;
@@ -79,3 +89,20 @@ code { color: #38bdf8; }
     border-top: 1px solid #1e2a45;
 }
 .divisor span { padding: 0 12px; }
+
+/* ── Mundo (porta tipo 'mundo') ─────────────────────────────────── */
+.mundo-palco { position: relative; width: 100%; border: 1px solid #1e2a45; border-radius: 10px; overflow: hidden; background: #0b1020; }
+.mundo-palco canvas { display: block; cursor: crosshair; image-rendering: pixelated; }
+.mundo-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 10, 26, .72); color: #e2e8f0; padding: 16px; }
+.mundo-item { font-size: 12px; }
+.mundo-ico { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.mundo-ico-pedra { background: #8b8f98; }
+.mundo-ico-madeira { background: #b0793f; }
+.mundo-ico-comida { background: #e53935; }
+.mundo-ico-minerio { background: #f5c542; }
+.mundo-bolinha { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+#jogo-mundo:fullscreen { background: #0b1020; padding: 12px; overflow: auto; }
+.mundo-overlay { overflow: auto; }
+.mundo-ajuda { max-width: 760px; margin: auto; }
+.mundo-palco:has(.mundo-ajuda) { min-height: 520px; }

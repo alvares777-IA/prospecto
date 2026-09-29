@@ -15,17 +15,17 @@ const estado = {
     persistido: false,        // a minha entrada já foi gravada no banco?
     jogoIniciado: false,
     jogo: {                   // estado do protótipo de jogo
-        modo: 'individual',
         inicio: null, porta: 0, total: 0,
         energiaBase: null, energiaDt: 0, decaimentoMin: 1,
         portas: {}, ultimaLista: [],
         chatAberto: false, chatLiberado: false,
         noHall: false, niveisLista: [],
         pedidos: {},          // socketId -> { jogador, porta }  (pedidos de ajuda abertos)
+        doacoesPedidas: {},   // socketId -> { jogador, porta }  (pedidos de doação de energia)
         recusei: new Set(),   // socketIds que EU recusei ajudar
-        coop: {               // modo em equipe
-            fase: 1, totalFases: 1, enigmas: [], ordemAberta: null,
-            energiaBase: null, energiaDt: 0, decaimentoMin: 1,
+        semEnergia: false,    // meu estado esgotado (para reabilitar ao receber energia)
+        fase: {               // trecho co-op da sequência, quando eu estou nele
+            ativa: false, inicio: 0, fim: 0, enigmas: [], ordemAberta: null, completa: false,
         },
     },
 };
@@ -37,25 +37,113 @@ let socket = null;
 window.addEventListener('message', e => {
     if (e.origin !== location.origin) return;
     const d = e.data || {};
+    // jogo pediu para gastar energia (tiro): o servidor decide; o jogo só
+    // dispara com a resposta ok
+    if (d.tipo === 'pedir_config' && socket && e.source) {
+        socket.emit('config_jogo', { ordem: ordemDoJogoAberto() }, cfg => {
+            try { e.source.postMessage({ tipo: 'config', valores: cfg || {} }, location.origin); } catch (err) { /* iframe já saiu */ }
+        });
+        return;
+    }
+    if (d.tipo === 'pedir_gasto' && socket && e.source) {
+        socket.emit('energia_jogo', { motivo: d.motivo, ordem: ordemDoJogoAberto() }, r => {
+            try {
+                e.source.postMessage({ tipo: r?.ok ? 'gasto_ok' : 'gasto_negado', pedido: d.motivo, motivo: r?.erro, valor: r?.valor }, location.origin);
+            } catch (err) { /* iframe já saiu */ }
+        });
+        return;
+    }
     if (d.tipo === 'tentativa' && socket) {
-        if (estado.jogo.modo === 'coop') {
-            socket.emit('responder', { ordem: estado.jogo.coop.ordemAberta, resposta: d.valor ?? '' });
+        estado.jogo._htmlPendente = true;
+        if (estado.jogo.fase.ativa && estado.jogo.fase.ordemAberta != null) {
+            socket.emit('responder', { ordem: estado.jogo.fase.ordemAberta, resposta: d.valor ?? '' });
         } else {
-            estado.jogo._htmlPendente = true;
             socket.emit('responder', { resposta: d.valor ?? '' });
         }
     }
 });
 
-function avisarIframe(correto) {
-    const w = document.getElementById('jogo-iframe')?.contentWindow;
+// Numa fase, o servidor precisa saber QUAL jogo do trecho está aberto.
+function ordemDoJogoAberto() {
+    return estado.jogo.fase.ativa ? estado.jogo.fase.ordemAberta : null;
+}
+
+function avisarIframe(correto, sel = '#jogo-iframe') {
+    const w = document.querySelector(sel)?.contentWindow;
     try { w && w.postMessage({ tipo: 'resultado', correto }, location.origin); } catch (e) {}
 }
 
-function avisarIframeCoop(correto) {
-    const w = document.getElementById('coop-iframe')?.contentWindow;
-    try { w && w.postMessage({ tipo: 'resultado', correto }, location.origin); } catch (e) {}
+// Jogo/enigma interativo terminou de carregar: foco nele, para setas e espaço
+// irem direto pro jogo sem o jogador ter de clicar dentro antes.
+$('#jogo-iframe, #jogo-fase-iframe').on('load', function () {
+    if (!this.src || this.src === 'about:blank') return;
+    try { this.contentWindow.focus(); } catch (e) { /* outra origem: sem foco */ }
+    this.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+});
+
+function pedirTelaCheia(id) {
+    const el = document.getElementById(id);
+    const pedir = el?.requestFullscreen || el?.webkitRequestFullscreen;
+    try { pedir && pedir.call(el); } catch (e) {}
 }
+
+// ── Ambiente: cor de fundo do painel + da página. Hall tem cor fixa
+// (corredor), cada sala tem uma cor sorteada e estável por porta. ──
+const CORES_SALA = [
+    { painel: '#1b1230', body: '#0f0a1c' },  // roxo
+    { painel: '#0e2129', body: '#07141a' },  // teal
+    { painel: '#28141c', body: '#180a0f' },  // vinho
+    { painel: '#102a1d', body: '#08160f' },  // verde
+    { painel: '#282011', body: '#161109' },  // âmbar
+    { painel: '#131c33', body: '#090e1f' },  // azul
+];
+const COR_HALL = { painel: '#222c40', body: '#151b2a' };   // corredor: mais claro e neutro
+const COR_PADRAO = { painel: '#0d1224', body: '#0b1020' };
+
+function aplicarAmbiente(c) {
+    $('#painel-controles').css('background-color', c.painel);
+    document.body.style.backgroundColor = c.body;
+}
+function corDaSala(chave) {
+    const cache = estado.jogo._cores || (estado.jogo._cores = {});
+    if (!cache[chave]) {
+        let i;
+        do { i = Math.floor(Math.random() * CORES_SALA.length); }
+        while (CORES_SALA.length > 1 && i === estado.jogo._ultimaCor);
+        estado.jogo._ultimaCor = i;
+        cache[chave] = CORES_SALA[i];
+    }
+    return cache[chave];
+}
+
+// ── Som de alerta (WebAudio, sem arquivo). Precisa de um gesto do usuário
+// para "acordar" o contexto — chamamos iniciarAudio() no primeiro clique. ──
+let _actx = null;
+function iniciarAudio() {
+    try {
+        _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+        if (_actx.state === 'suspended') _actx.resume();
+    } catch (e) {}
+}
+function bip(freq, dur, atraso) {
+    iniciarAudio();
+    if (!_actx) return;
+    try {
+        if (_actx.state === 'suspended') _actx.resume();
+        const t = _actx.currentTime + (atraso || 0);
+        const o = _actx.createOscillator(), g = _actx.createGain();
+        o.type = 'triangle'; o.frequency.value = freq;
+        o.connect(g); g.connect(_actx.destination);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.start(t); o.stop(t + dur + 0.03);
+    } catch (e) {}
+}
+function somPedido()   { bip(600, 0.16); bip(920, 0.18, 0.17); }   // atenção: dois toques subindo
+function somRecebido() { bip(880, 0.13); bip(1320, 0.18, 0.12); }  // chegou algo p/ você
+// "acorda" o áudio em qualquer clique (resume é no-op se já estiver rodando)
+document.addEventListener('pointerdown', iniciarAudio, true);
 
 $(async function () {
     const m = location.pathname.match(/^\/sala\/([A-Za-z0-9]{1,12})$/);
@@ -81,12 +169,14 @@ $(async function () {
     // figura + sala
     $('#btn-continuar').on('click', continuar);
     $('#campo-nome').on('keydown', e => { if (e.key === 'Enter') continuar(); });
-    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador({ modo: 'individual' })); });
-    $('#btn-criar-coop').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador({ modo: 'coop' })); });
+    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador()); });
     $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
     $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
     $('#btn-copiar').on('click', copiarLink);
     $('#btn-iniciar').on('click', () => socket && socket.emit('iniciar_jogo'));
+    // volta pro início pra criar/entrar numa sala nova — a sala concluída não
+    // se reinicia sozinha (outros podem ainda estar jogando nela).
+    $('#btn-jogar-de-novo').on('click', () => { location.href = '/'; });
 });
 
 async function carregarEu() {
@@ -198,9 +288,21 @@ function entrarNaSalaDigitada() {
 // Cria o socket e registra os ouvintes uma vez.
 function conectar() {
     if (socket) return;
+    iniciarAudio();   // chamado a partir de um clique -> "acorda" o áudio
     socket = io();
 
-    socket.on('connect', () => $('#status-conexao').text('conectado'));
+    // Reconexão (servidor reiniciou ou a rede caiu): o socket novo não está em
+    // sala nenhuma e o servidor perdeu o estado vivo. Entra de novo na mesma
+    // sala — o servidor retoma pelo banco e manda para o hall da porta atual.
+    let jaConectou = false;
+    socket.on('connect', () => {
+        $('#status-conexao').text('conectado');
+        if (jaConectou && estado.codigo) {
+            socket.emit('entrar_sala', payloadJogador({ codigo: estado.codigo }));
+            feed('reconectado — voltando para a sala');
+        }
+        jaConectou = true;
+    });
     socket.on('disconnect', () => $('#status-conexao').text('desconectado'));
 
     socket.on('erro_sala', ({ motivo }) => {
@@ -208,32 +310,29 @@ function conectar() {
         mostrar('#erro-sala', motivo || 'Não foi possível entrar.');
     });
 
-    socket.on('sala_pronta', ({ codigo, souCriador, estado: est, modo, voce, lista }) => {
+    socket.on('sala_pronta', ({ codigo, souCriador, estado: est, voce, lista }) => {
         estado.codigo = codigo;
         estado.souCriador = !!souCriador;
         estado.persistido = false;
         estado.jogoIniciado = est === 'em_jogo';
-        if (modo) aplicarModo(modo);
         history.replaceState(null, '', '/sala/' + codigo);
         const av = avatarPorCodigo(voce.avatar_codigo);
         $('#eu-nome').text(voce.nome);
         $('#eu-avatar').attr('src', av ? av.arquivo : '').attr('alt', av ? av.nome : '');
         $('#rotulo-codigo').text(codigo);
+        aplicarAmbiente(COR_PADRAO);   // saguão: fundo neutro até começar
         trocarTela('#tela-sala');
         renderPresentes(lista);
         atualizarInicio();
         $('#campo-msg').trigger('focus');
     });
 
-    socket.on('presenca_confirmada', ({ modo, energiaPessoal } = {}) => {
+    socket.on('presenca_confirmada', () => {
         estado.persistido = true;
-        if (modo) aplicarModo(modo);
-        if (energiaPessoal != null) $('#minha-energia').text(`Sua energia: ${Math.round(energiaPessoal)}%`);
         atualizarInicio();
     });
-    socket.on('jogo_iniciado', ({ modo } = {}) => {
+    socket.on('jogo_iniciado', () => {
         estado.jogoIniciado = true;
-        if (modo) aplicarModo(modo);
         atualizarInicio();
     });
 
@@ -254,7 +353,7 @@ function conectar() {
         if (estado.jogo._htmlPendente) {
             estado.jogo._htmlPendente = false;
             avisarIframe(true);
-            setTimeout(() => aplicarHall(porta), 700);
+            setTimeout(() => aplicarHall(porta), 1500);
             return;
         }
         aplicarHall(porta);
@@ -264,43 +363,62 @@ function conectar() {
     function aplicarHall(porta) {
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
         estado.jogo.noHall = true;
+        estado.jogo.fase.ativa = false;
+        estado.jogo.fase.ordemAberta = null;
         estado.jogo.porta = porta;
-        $('#jogo-enigma').addClass('d-none');
-        $('#jogo-iframe').attr('src', 'about:blank');
+        pararMundo();
+        $('#jogo-enigma, #jogo-fase, #jogo-fim, #btn-jogar-de-novo').addClass('d-none');
+        $('#jogo-iframe, #jogo-fase-iframe').attr('src', 'about:blank');
         $('#resposta-recebida').addClass('d-none').empty();
-        $('#jogo-fim').addClass('d-none');
         $('#hall').removeClass('d-none');
         $('#hall-proxima').text(`próxima: porta ${porta}${estado.jogo.total ? ' de ' + estado.jogo.total : ''}`);
+        aplicarAmbiente(COR_HALL);
         renderHall();
+        sincDoacaoBtn();
         atualizarChat();
         $('#campo-msg').trigger('focus');
     }
     $('#btn-prosseguir').on('click', () => socket.emit('prosseguir'));
 
     socket.on('meu_enigma', st => {
+        if (!st) return;
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
         estado.jogo.noHall = false;
         estado.jogo.porta = st.porta;
         estado.jogo.total = st.total;
         estado.jogo.chatAberto = !!st.chatAberto;
         $('#hall').addClass('d-none');
-        atualizarChat();
         setEnergia(st.energia, st.decaimentoMin);
-        if (st.terminou) return;
+        if (st.energia > 0 && estado.jogo.semEnergia) {
+            estado.jogo.semEnergia = false;
+            $('#jogo-resposta, #jogo-pedir, #jogo-pedir-doacao, #jogo-desistir').prop('disabled', false);
+        }
+        if (st.terminou) { estado.jogo.fase.ativa = false; atualizarChat(); return; }
+
+        if (st.tipo === 'fase') { entrarNaFase(st); return; }
+        if (st.tipo === 'mundo') { entrarNoMundo(st); return; }
+        pararMundo();
+
+        estado.jogo.fase.ativa = false;
+        aplicarAmbiente(corDaSala('p' + st.porta));
+        atualizarChat();
+        sincDoacaoBtn();
+        $('#jogo-fase').addClass('d-none');
         $('#jogo-enigma').removeClass('d-none');
-        $('#jogo-fim').addClass('d-none');
+        $('#jogo-fim, #btn-jogar-de-novo').addClass('d-none');
         $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`);
         $('#jogo-aviso').text('');
         $('#resposta-recebida').addClass('d-none').empty();
 
-        if (st.tipo === 'html' && st.arquivo) {
-            // enigma interativo: a própria página valida e avisa por postMessage
+        if ((st.tipo === 'html' || st.tipo === 'jogo') && st.arquivo) {
             $('#jogo-pergunta, #jogo-form').addClass('d-none');
             $('#jogo-iframe')
                 .attr('src', '/enigmas/' + st.arquivo + '?t=' + Date.now())
                 .removeClass('d-none');
+            $('#jogo-tela-cheia').removeClass('d-none');
         } else {
             $('#jogo-iframe').addClass('d-none').attr('src', 'about:blank');
+            $('#jogo-tela-cheia').addClass('d-none');
             $('#jogo-pergunta').removeClass('d-none').text(st.pergunta);
             $('#jogo-form').removeClass('d-none');
             $('#jogo-resposta').val('').prop('disabled', false).trigger('focus');
@@ -312,6 +430,7 @@ function conectar() {
             if (p.porta != null) estado.jogo.portas[p.socketId] = p.porta;
         }
         renderRosters();
+        if (estado.jogo.fase.ativa) renderFase();
     });
     socket.on('chat_liberado', () => {
         if (estado.jogo.chatLiberado) return;
@@ -320,22 +439,23 @@ function conectar() {
         feed('o chat foi liberado');
     });
     socket.on('energia', ({ energia }) => {
-        if (estado.jogo.modo === 'coop') setEnergiaCoop(energia);
-        else setEnergia(energia);
+        setEnergia(energia);
+        if (estado.jogo.semEnergia && energia > 0) {   // alguém me doou energia -> destravou
+            estado.jogo.semEnergia = false;
+            $('#jogo-resposta, #jogo-pedir, #jogo-pedir-doacao, #jogo-desistir').prop('disabled', false);
+            $('#jogo-aviso, #jogo-fase-aviso').removeClass('text-danger').text('');
+        }
     });
-    socket.on('resposta_errada', ({ energia }) => {
-        if (estado.jogo.modo === 'coop') {
-            setEnergiaCoop(energia);
-            $('#coop-aviso').removeClass('text-success').addClass('text-danger')
-                .text('Resposta errada — a equipe perdeu energia.');
-            $('#coop-resposta').val('').trigger('focus');
-            avisarIframeCoop(false);
+    socket.on('resposta_errada', ({ energia, fase }) => {
+        setEnergia(energia);
+        if (estado.jogo._htmlPendente) { avisarIframe(false, fase ? '#jogo-fase-iframe' : '#jogo-iframe'); estado.jogo._htmlPendente = false; }
+        if (fase) {
+            $('#jogo-fase-aviso').removeClass('text-success').addClass('text-danger').text('Resposta errada — você perdeu energia.');
+            $('#jogo-fase-resposta').val('').trigger('focus');
             return;
         }
-        setEnergia(energia);
         $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Resposta errada. -5% de energia.');
         $('#jogo-resposta').val('').trigger('focus');
-        if (estado.jogo._htmlPendente) { avisarIframe(false); estado.jogo._htmlPendente = false; }
     });
     socket.on('porta_alcancada', ({ jogador, socketId, porta }) => {
         estado.jogo.portas[socketId] = porta;
@@ -347,11 +467,35 @@ function conectar() {
         estado.jogo.recusei.delete(socketId);
         renderRosters();
         feed(`${jogador} pediu ajuda na porta ${porta}`);
+        somPedido();
     });
     socket.on('ajuda_resolvida', ({ socketId }) => {
         delete estado.jogo.pedidos[socketId];
         estado.jogo.recusei.delete(socketId);
         renderRosters();
+    });
+
+    socket.on('pediu_doacao', ({ jogador, socketId, porta }) => {
+        estado.jogo.doacoesPedidas[socketId] = { jogador, porta };
+        sincDoacaoBtn();
+        renderRosters();
+        feed(`${jogador} pediu doação de energia`);
+        somPedido();
+    });
+    socket.on('doacao_resolvida', ({ socketId }) => {
+        delete estado.jogo.doacoesPedidas[socketId];
+        sincDoacaoBtn();
+        renderRosters();
+    });
+    socket.on('doou_energia', ({ de, para, valor }) => {
+        feed(`${de} doou ${Math.round(valor)}% de energia a ${para}`);
+    });
+    socket.on('doacao_recebida', ({ de, valor, revivido }) => {
+        somRecebido();
+        // a barra já foi atualizada pelo evento 'energia' que vem logo antes
+        const alvo = estado.jogo.fase.ativa ? '#jogo-fase-aviso' : '#jogo-aviso';
+        $(alvo).removeClass('text-danger').addClass('text-success')
+            .text(`${de} te doou ${Math.round(valor)}% de energia${revivido ? ' — você voltou ao jogo!' : ''}.`);
     });
     socket.on('ofereceu_ajuda', ({ de, para }) => feed(`${de} ofereceu ajuda a ${para}`));
     socket.on('recusou_ajuda', ({ de, para, socketId, alvoSocketId }) => {
@@ -366,6 +510,7 @@ function conectar() {
     });
     socket.on('ajuda_recebida', ({ de, porta, resposta }) => {
         feed(`${de} te passou a resposta da porta ${porta}`);
+        somRecebido();
         // elemento próprio, visível só para quem recebeu — não passa pelo chat
         const $b = $('#resposta-recebida').empty().removeClass('d-none');
         $('<span>').text('🔑 ').appendTo($b);
@@ -373,22 +518,33 @@ function conectar() {
         $('<span>').text(` te passou a resposta da porta ${porta}: `).appendTo($b);
         $('<strong>').text(resposta).appendTo($b);
     });
-    socket.on('jogo_terminado', ({ porta, energia, modo }) => {
-        if (modo === 'coop') {
-            setEnergiaCoop(energia);
-            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
-            $('#coop-fim').removeClass('d-none alert-danger').addClass('alert-success')
-                .text(`A equipe venceu! Energia final da equipe: ${Math.round(energia)}%`);
-            return;
-        }
+    socket.on('jogo_terminado', ({ porta, energia }) => {
         estado.jogo.noHall = false;
+        estado.jogo.fase.ativa = false;
         setEnergia(energia);
-        $('#jogo-enigma, #hall').addClass('d-none');
-        $('#jogo-fim').removeClass('d-none').text(`Você concluiu as ${porta} portas! Energia final: ${Math.round(energia)}%`);
+        aplicarAmbiente(COR_PADRAO);
+        pararMundo();
+        $('#jogo-enigma, #jogo-fase, #hall').addClass('d-none');
+        $('#jogo-fim').removeClass('d-none alert-danger').addClass('alert-success')
+            .text(`Você concluiu as ${porta} portas! Energia final: ${Math.round(energia)}%`);
+        $('#btn-jogar-de-novo').removeClass('d-none');
+    });
+    socket.on('sala_derrota', () => {
+        estado.jogo.semEnergia = true;
+        aplicarAmbiente(COR_PADRAO);
+        pararMundo();
+        $('#jogo-enigma, #jogo-fase, #hall').addClass('d-none');
+        $('#jogo-fim').removeClass('d-none alert-success').addClass('alert-danger')
+            .text('Fim de jogo — a sala acabou. Ninguém em pé para continuar.');
+        $('#btn-jogar-de-novo').removeClass('d-none');
+        $('#jogo-resposta, #jogo-pedir, #jogo-pedir-doacao, #jogo-desistir, #jogo-fase-resposta').prop('disabled', true);
     });
     socket.on('sem_energia', () => {
-        $('#jogo-resposta, #jogo-pedir').prop('disabled', true);
-        $('#jogo-aviso').removeClass('text-success').addClass('text-danger').text('Sua energia acabou.');
+        estado.jogo.semEnergia = true;
+        $('#jogo-resposta, #jogo-pedir, #jogo-desistir, #jogo-fase-resposta').prop('disabled', true);
+        const alvo = estado.jogo.fase.ativa ? '#jogo-fase-aviso' : '#jogo-aviso';
+        $(alvo).removeClass('text-success').addClass('text-danger')
+            .text('Sua energia acabou. Peça uma doação de energia para voltar.');
     });
 
     $('#jogo-form').on('submit', e => {
@@ -397,84 +553,180 @@ function conectar() {
         if (r) socket.emit('responder', { resposta: r });
     });
     $('#jogo-pedir').on('click', () => socket.emit('pedir_ajuda'));
-
-    // ── modo em equipe (coop) ────────────────────────────────────────
-    socket.on('estado_coop', est => {
-        if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
-        aplicarModo('coop');
-        const c = estado.jogo.coop;
-        c.fase = est.fase;
-        c.totalFases = est.totalFases;
-        c.enigmas = est.enigmas || [];
-        c.faseCompleta = !!est.faseCompleta;
-        setEnergiaCoop(est.energia, est.decaimentoMin);
-        $('#coop-fase').text(`Fase ${est.fase} de ${est.totalFases}`);
-        atualizarChat();
-
-        if (est.terminou) {
-            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
-            $('#coop-fim').removeClass('d-none alert-danger').addClass('alert-success')
-                .text(`A equipe venceu! Energia final da equipe: ${Math.round(est.energia)}%`);
-            return;
-        }
-        if (est.esgotado) {
-            $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
-            $('#coop-fim').removeClass('d-none alert-success').addClass('alert-danger')
-                .text('A energia da equipe acabou. Fim de jogo.');
-            return;
-        }
-        // se eu estava resolvendo um enigma que já foi resolvido, volto ao tabuleiro
-        const aberta = c.ordemAberta;
-        const aindaAberta = aberta != null && c.enigmas.some(e => e.ordem === aberta && !e.resolvido);
-        if (!aindaAberta && !$('#coop-hall').is(':visible')) {
-            c.ordemAberta = null;
-            $('#coop-iframe').attr('src', 'about:blank');
-            $('#coop-resolver').addClass('d-none');
-            $('#coop-tabuleiro').removeClass('d-none');
-        }
-        renderCoopTabuleiro(est);
+    $('#jogo-pedir-doacao, #hall-pedir-doacao').on('click', () => socket.emit('pedir_doacao'));
+    $('#jogo-desistir').on('click', () => socket.emit('desistir', {}));
+    $('#jogo-sair, #hall-sair, #mundo-sair-sala').on('click', () => {
+        if (window.confirm('Sair da sala e voltar à tela inicial?')) location.href = '/';
     });
+    $('#jogo-tela-cheia').on('click', () => pedirTelaCheia('jogo-iframe'));
+    $('#jogo-fase-tela-cheia').on('click', () => pedirTelaCheia('jogo-fase-iframe'));
 
-    socket.on('enigma_resolvido', ({ ordem, por }) => {
-        coopFeed(`✓ enigma resolvido por ${por}`);
-        if (estado.jogo.coop.ordemAberta === ordem) avisarIframeCoop(true);
-        // o estado_coop vem logo atrás e re-renderiza
-    });
-
-    socket.on('fase_avancou', ({ fase, venceu }) => {
-        coopFeed(venceu ? 'A equipe concluiu a última fase!' : `A equipe avançou para a fase ${fase}`);
-        estado.jogo.coop.ordemAberta = null;
-        $('#coop-iframe').attr('src', 'about:blank');
-        $('#coop-resolver, #coop-hall, #coop-avancar').addClass('d-none');
-        $('#coop-tabuleiro').removeClass('d-none');
-    });
-
-    socket.on('coop_no_hall', () => {
-        $('#coop-tabuleiro, #coop-resolver, #coop-avancar').addClass('d-none');
-        $('#coop-hall').removeClass('d-none');
-    });
-
-    socket.on('hall_coop', ({ noHall, naSala }) => {
-        const $ul = $('#coop-hall-lista').empty();
-        for (const p of noHall || []) $('<li class="text-success">').text(`${p.nome} — pronto`).appendTo($ul);
-        for (const p of naSala || []) $('<li class="text-secondary">').text(`${p.nome} — ainda no tabuleiro`).appendTo($ul);
-    });
-
-    socket.on('equipe_esgotada', ({ energia }) => {
-        setEnergiaCoop(energia ?? 0);
-        $('#coop-tabuleiro, #coop-resolver, #coop-avancar, #coop-hall').addClass('d-none');
-        $('#coop-fim').removeClass('d-none alert-success').addClass('alert-danger')
-            .text('A energia da equipe acabou. Fim de jogo.');
-    });
-
-    $('#coop-form').on('submit', e => {
+    // ── trecho de fase (co-op) ──────────────────────────────────────
+    $('#jogo-fase-form').on('submit', e => {
         e.preventDefault();
-        const r = $('#coop-resposta').val().trim();
-        if (r) socket.emit('responder', { ordem: estado.jogo.coop.ordemAberta, resposta: r });
+        const r = $('#jogo-fase-resposta').val().trim();
+        if (r) socket.emit('responder', { ordem: estado.jogo.fase.ordemAberta, resposta: r });
     });
-    $('#coop-voltar').on('click', voltarCoopTabuleiro);
-    $('#btn-avancar-fase').on('click', () => socket.emit('avancar_fase'));
-    $('#btn-comecar-fase').on('click', () => socket.emit('comecar_fase'));
+    $('#jogo-fase-voltar').on('click', voltarAoTabuleiro);
+    $('#jogo-fase-desistir').on('click', () => socket.emit('desistir', { ordem: estado.jogo.fase.ordemAberta }));
+    $('#jogo-fase-prosseguir').on('click', () => socket.emit('prosseguir'));
+
+    socket.on('fase_resolvida', ({ ordem, por, faseCompleta }) => {
+        feed(`✓ enigma da fase resolvido por ${por}`);
+        const f = estado.jogo.fase;
+        if (!f.ativa) return;
+        const alvo = f.enigmas.find(e => e.ordem === ordem);
+        if (alvo) { alvo.resolvido = true; alvo.porQuem = por; alvo.pergunta = null; alvo.arquivo = null; }
+        f.completa = !!faseCompleta;
+        if (f.ordemAberta === ordem) {
+            // fui eu que enviei: o jogo mostra "✓ enviado" por um instante antes de voltar
+            const fuiEu = estado.jogo._htmlPendente;
+            if (fuiEu) avisarIframe(true, '#jogo-fase-iframe');
+            estado.jogo._htmlPendente = false;
+            const fechar = () => {
+                if (f.ordemAberta !== ordem) return;   // já abriu outro enigma nesse meio-tempo
+                f.ordemAberta = null;
+                socket.emit('foco_fase', { ordem: null });
+                $('#jogo-fase-iframe').attr('src', 'about:blank');
+                $('#jogo-fase-resolver').addClass('d-none');
+                renderFase();
+            };
+            if (fuiEu) setTimeout(fechar, 1500); else fechar();
+        }
+        renderFase();
+    });
+
+    socket.on('resposta_revelada', ({ resposta, custo }) => {
+        const txt = `O jogo revelou a resposta (-${Math.round(custo)}%): `;
+        if (estado.jogo.fase.ativa) {
+            $('#jogo-fase-aviso').removeClass('text-danger').addClass('text-success')
+                .text('🗝️ ' + txt + resposta + ' — você ainda precisa respondê-la.');
+            $('#jogo-fase-resposta').trigger('focus');
+        } else {
+            const $b = $('#resposta-recebida').empty().removeClass('d-none');
+            $('<span>').text('🗝️ ' + txt).appendTo($b);
+            $('<strong>').text(resposta).appendTo($b);
+            $('<span>').text(' — você ainda precisa respondê-la.').appendTo($b);
+            $('#jogo-resposta').trigger('focus');
+        }
+    });
+
+    socket.on('desistir_negado', ({ motivo }) => {
+        const alvo = estado.jogo.fase.ativa ? '#jogo-fase-aviso' : '#jogo-aviso';
+        const msg = motivo === 'sem_energia_para_desistir'
+            ? 'Você não tem energia suficiente para desistir.'
+            : 'Não dá para desistir deste enigma agora.';
+        $(alvo).removeClass('text-success').addClass('text-danger').text(msg);
+    });
+
+    socket.on('desistiu', ({ jogador }) => feed(`${jogador} preferiu a resposta do jogo`));
+}
+
+// Entra no tabuleiro do trecho de fase (tipo:'fase' vindo de meu_enigma).
+// Porta 'mundo': o chat fica aberto (combinar é parte do jogo; só o clique
+// num ato conta). O desenho e as intenções ficam em public/mundo.js.
+function entrarNoMundo(st) {
+    estado.jogo.fase.ativa = false;
+    estado.jogo.chatAberto = true;
+    aplicarAmbiente(corDaSala('p' + st.porta));
+    atualizarChat();
+    sincDoacaoBtn();
+    $('#jogo-enigma, #jogo-fase, #jogo-fim, #btn-jogar-de-novo').addClass('d-none');
+    $('#jogo-mundo').removeClass('d-none');
+    $('#mundo-porta').text(`Porta ${st.porta} de ${st.total} · Mundo`);
+    if (!Mundo.ativo()) Mundo.iniciar(socket);
+}
+
+function pararMundo() {
+    if (typeof Mundo !== 'undefined') Mundo.parar();
+    if (document.fullscreenElement?.id === 'jogo-mundo') document.exitFullscreen?.();
+    $('#jogo-mundo').addClass('d-none');
+}
+
+function entrarNaFase(st) {
+    const f = estado.jogo.fase;
+    f.ativa = true;
+    f.inicio = st.faseInicio;
+    f.fim = st.faseFim;
+    f.enigmas = st.enigmas || [];
+    f.completa = !!st.faseCompleta;
+    // mantém o enigma aberto só se ainda não foi resolvido
+    if (f.ordemAberta != null && !f.enigmas.some(e => e.ordem === f.ordemAberta && !e.resolvido)) {
+        f.ordemAberta = null;
+        socket.emit('foco_fase', { ordem: null });
+    }
+    estado.jogo.chatAberto = true;   // dentro da fase o chat é livre
+    aplicarAmbiente(corDaSala('f' + st.faseInicio));
+    atualizarChat();
+    sincDoacaoBtn();
+    $('#jogo-enigma, #jogo-fim, #hall, #btn-jogar-de-novo').addClass('d-none');
+    $('#jogo-fase').removeClass('d-none');
+    renderFase();
+}
+
+function renderFase() {
+    const f = estado.jogo.fase;
+    const feitos = f.enigmas.filter(e => e.resolvido).length;
+    $('#jogo-fase-prog').text(`${feitos} de ${f.enigmas.length} resolvidos`);
+
+    const $ul = $('#jogo-fase-lista').empty();
+    f.enigmas.forEach((e, i) => {
+        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
+        if (e.resolvido) {
+            $('<span class="text-success">')
+                .text(`✓ enigma ${i + 1}${e.porQuem ? ' — ' + e.porQuem : ''}`).appendTo($li);
+        } else {
+            $('<span>').text(`enigma ${i + 1}${e.nivel ? ' · ' + e.nivel : ''}`).appendTo($li);
+            $('<button class="btn btn-sm btn-outline-primary py-0" type="button">')
+                .text('Resolver').prop('disabled', estado.jogo.semEnergia)
+                .on('click', () => abrirFaseEnigma(e)).appendTo($li);
+        }
+        $ul.append($li);
+    });
+
+    // quem mais está nesta fase (mesma porta de entrada do trecho)
+    const comigo = (estado.jogo.niveisLista || [])
+        .filter(p => socket && p.socketId !== socket.id && p.porta === f.inicio)
+        .map(p => p.nome);
+    $('#jogo-fase-quem').text(comigo.length ? 'Na fase com você: ' + comigo.join(', ') : 'Você está sozinho nesta fase.');
+
+    if (f.completa) {
+        $('#jogo-fase-resolver').addClass('d-none');
+        const $r = $('#jogo-fase-recap').empty();
+        f.enigmas.forEach((e, i) => $('<li>').text(`enigma ${i + 1}: ${e.porQuem || '—'}`).appendTo($r));
+        $('#jogo-fase-avancar').removeClass('d-none');
+    } else {
+        $('#jogo-fase-avancar').addClass('d-none');
+    }
+}
+
+function abrirFaseEnigma(e) {
+    estado.jogo.fase.ordemAberta = e.ordem;
+    const pos = e.ordem - estado.jogo.fase.inicio + 1;
+    socket.emit('foco_fase', { ordem: e.ordem, rotulo: `enigma ${pos} da fase` });
+    $('#jogo-fase-avancar').addClass('d-none');
+    $('#jogo-fase-resolver').removeClass('d-none');
+    $('#jogo-fase-aviso').text('');
+    $('#jogo-fase-nivel').text(e.nivel || '');
+    if ((e.tipo === 'html' || e.tipo === 'jogo') && e.arquivo) {
+        $('#jogo-fase-pergunta, #jogo-fase-form').addClass('d-none');
+        $('#jogo-fase-iframe').attr('src', '/enigmas/' + e.arquivo + '?t=' + Date.now()).removeClass('d-none');
+        $('#jogo-fase-tela-cheia').removeClass('d-none');
+    } else {
+        $('#jogo-fase-iframe').addClass('d-none').attr('src', 'about:blank');
+        $('#jogo-fase-tela-cheia').addClass('d-none');
+        $('#jogo-fase-pergunta').removeClass('d-none').text(e.pergunta);
+        $('#jogo-fase-form').removeClass('d-none');
+        $('#jogo-fase-resposta').val('').trigger('focus');
+    }
+}
+
+function voltarAoTabuleiro() {
+    if (estado.jogo.fase.ordemAberta != null) socket.emit('foco_fase', { ordem: null });
+    estado.jogo.fase.ordemAberta = null;
+    $('#jogo-fase-iframe').attr('src', 'about:blank');
+    $('#jogo-fase-resolver').addClass('d-none');
+    renderFase();
 }
 
 function setEnergia(valor, decaimentoMin) {
@@ -502,96 +754,13 @@ function pintarBarra(selNum, selBarra, e) {
         .toggleClass('bg-danger', e <= 20);
 }
 
-// ── energia da equipe (coop) ────────────────────────────────────────
-function setEnergiaCoop(valor, decaimentoMin) {
-    const c = estado.jogo.coop;
-    c.energiaBase = valor;
-    c.energiaDt = Date.now();
-    if (decaimentoMin != null) c.decaimentoMin = decaimentoMin;
-    pintarEnergiaCoop();
-}
-
-function energiaCoopAgora() {
-    const c = estado.jogo.coop;
-    if (c.energiaBase == null) return 100;
-    const min = (Date.now() - c.energiaDt) / 60000;
-    return Math.max(0, c.energiaBase - (c.decaimentoMin || 1) * min);
-}
-
-function pintarEnergiaCoop() {
-    pintarBarra('#coop-energia-num', '#coop-energia-barra', energiaCoopAgora());
-}
-
 // relógio + energia local, 1x por segundo
 setInterval(() => {
     if (!estado.jogo.inicio) return;
     const s = Math.floor((Date.now() - estado.jogo.inicio) / 1000);
-    const relogio = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    if (estado.jogo.modo === 'coop') {
-        $('#coop-relogio').text(relogio);
-        pintarEnergiaCoop();
-    } else {
-        $('#jogo-relogio').text(relogio);
-        pintarEnergia();
-    }
+    $('#jogo-relogio').text(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+    pintarEnergia();
 }, 1000);
-
-// Aplica o modo da sala (individual | coop) no estado e nos rótulos.
-function aplicarModo(modo) {
-    estado.jogo.modo = modo === 'coop' ? 'coop' : 'individual';
-    $('#rotulo-modo').toggleClass('d-none', estado.jogo.modo !== 'coop');
-}
-
-function coopFeed(msg) {
-    const el = $('#coop-feed').append($('<div>').text(msg))[0];
-    if (el) el.scrollTop = el.scrollHeight;
-}
-
-function renderCoopTabuleiro(est) {
-    const enigmas = est.enigmas || [];
-    const feitos = enigmas.filter(e => e.resolvido).length;
-    $('#coop-progresso').text(`${feitos} de ${enigmas.length} enigmas resolvidos nesta fase`);
-    const $ul = $('#coop-enigmas').empty();
-    enigmas.forEach((e, i) => {
-        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
-        if (e.resolvido) {
-            $('<span class="text-success">')
-                .text(`✓ enigma ${i + 1}${e.porQuem ? ' — ' + e.porQuem : ''}`).appendTo($li);
-        } else {
-            $('<span>').text(`enigma ${i + 1}${e.nivel ? ' · ' + e.nivel : ''}`).appendTo($li);
-            $('<button class="btn btn-sm btn-outline-primary py-0" type="button">')
-                .text('Resolver').on('click', () => abrirCoopEnigma(e)).appendTo($li);
-        }
-        $ul.append($li);
-    });
-    $('#coop-avancar').toggleClass('d-none', !est.faseCompleta);
-    if (!est.faseCompleta) $('#coop-hall').addClass('d-none');
-}
-
-function abrirCoopEnigma(e) {
-    estado.jogo.coop.ordemAberta = e.ordem;
-    $('#coop-tabuleiro, #coop-avancar, #coop-hall').addClass('d-none');
-    $('#coop-resolver').removeClass('d-none');
-    $('#coop-aviso').text('');
-    $('#coop-enigma-nivel').text(e.nivel || '');
-    if (e.tipo === 'html' && e.arquivo) {
-        $('#coop-enigma-pergunta, #coop-form').addClass('d-none');
-        $('#coop-iframe').attr('src', '/enigmas/' + e.arquivo + '?t=' + Date.now()).removeClass('d-none');
-    } else {
-        $('#coop-iframe').addClass('d-none').attr('src', 'about:blank');
-        $('#coop-enigma-pergunta').removeClass('d-none').text(e.pergunta);
-        $('#coop-form').removeClass('d-none');
-        $('#coop-resposta').val('').trigger('focus');
-    }
-}
-
-function voltarCoopTabuleiro() {
-    estado.jogo.coop.ordemAberta = null;
-    $('#coop-iframe').attr('src', 'about:blank');
-    $('#coop-resolver').addClass('d-none');
-    $('#coop-tabuleiro').removeClass('d-none');
-    $('#coop-avancar').toggleClass('d-none', !estado.jogo.coop.faseCompleta);
-}
 
 function feed(msg) {
     const el = $('#jogo-feed').append($('<div>').text(msg))[0];
@@ -599,8 +768,8 @@ function feed(msg) {
 }
 
 function atualizarChat() {
-    // no hall (e no modo em equipe) o chat sempre aparece
-    const aberto = estado.jogo.modo === 'coop'
+    // no hall e dentro de uma fase (co-op) o chat sempre aparece
+    const aberto = estado.jogo.fase.ativa
         || estado.jogo.noHall || estado.jogo.chatAberto || estado.jogo.chatLiberado;
     $('#chat-area').toggleClass('d-none', !aberto);
     $('#chat-fechado').toggleClass('d-none', aberto);
@@ -611,13 +780,45 @@ function renderRosters() {
     renderJogadores();
 }
 
+// Botão "Doar energia" para outro jogador (sempre disponível no modo sozinho).
+function botaoDoar($li, p) {
+    $('<button class="btn btn-sm btn-outline-info py-0">')
+        .text('Doar energia')
+        .on('click', () => socket.emit('doar_energia', { paraSocketId: p.socketId }))
+        .appendTo($li);
+}
+
+function pediuDoacao(socketId, sou) {
+    return !sou && !!estado.jogo.doacoesPedidas[socketId];
+}
+
+// Texto do meu botão "Pedir doação" conforme eu tenha ou não um pedido aberto.
+function sincDoacaoBtn() {
+    const ativo = socket && !!estado.jogo.doacoesPedidas[socket.id];
+    $('#jogo-pedir-doacao, #hall-pedir-doacao')
+        .text(ativo ? 'Cancelar pedido de doação' : 'Pedir doação de energia');
+}
+
+// Onde o jogador está: concluiu > sem energia > enigma da fase > na fase > porta N.
+function descLocal(n, portaFallback) {
+    if (n) {
+        if (n.terminou) return 'concluiu';
+        if (n.travado) return 'sem energia';
+        if (n.foco) return n.foco;
+        if (n.naFase) return 'na fase';
+        if (n.porta != null) return `porta ${n.porta}`;
+    }
+    return portaFallback ? `porta ${portaFallback}` : '';
+}
+
 function renderHall() {
     const $ul = $('#hall-jogadores').empty();
     for (const p of estado.jogo.niveisLista) {
         const sou = socket && p.socketId === socket.id;
-        const nivel = p.terminou ? 'concluiu' : (p.porta != null ? `nível ${p.porta}` : '—');
+        const nivel = descLocal(p) || '—';
+        const pedeDoacao = pediuDoacao(p.socketId, sou);
         const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
-        $('<span>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}`).appendTo($li);
+        $('<span>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}${pedeDoacao ? ' · pediu doação' : ''}`).appendTo($li);
 
         const pediu = !sou && estado.jogo.pedidos[p.socketId] && !estado.jogo.recusei.has(p.socketId);
         if (pediu) {
@@ -630,6 +831,7 @@ function renderHall() {
                 .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId }))
                 .appendTo($li);
         }
+        if (!sou && !p.terminou) botaoDoar($li, p);
         $ul.append($li);
     }
 }
@@ -638,9 +840,12 @@ function renderJogadores() {
     const $ul = $('#jogo-jogadores').empty();
     for (const p of estado.jogo.ultimaLista || []) {
         const sou = socket && p.socketId === socket.id;
-        const porta = estado.jogo.portas[p.socketId];
+        const n = (estado.jogo.niveisLista || []).find(x => x.socketId === p.socketId);
+        const local = descLocal(n, estado.jogo.portas[p.socketId]);
+        const pedeDoacao = pediuDoacao(p.socketId, sou);
         const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
-        $('<span>').text(p.nome + (sou ? ' (você)' : '') + (porta ? ` — porta ${porta}` : '')).appendTo($li);
+        $('<span>').text(p.nome + (sou ? ' (você)' : '') + (local ? ` — ${local}` : '')
+            + (pedeDoacao ? ' · pediu doação' : '')).appendTo($li);
         if (sou) { $ul.append($li); continue; }
 
         $('<button class="btn btn-sm btn-outline-warning py-0">')
@@ -659,6 +864,7 @@ function renderJogadores() {
                 .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId }))
                 .appendTo($li);
         }
+        botaoDoar($li, p);
         $ul.append($li);
     }
 }
@@ -683,16 +889,10 @@ function renderPresentes(lista) {
 function atualizarInicio() {
     if (estado.jogoIniciado) {
         $('#area-inicio').addClass('d-none');
-        if (estado.jogo.modo === 'coop') {
-            $('#painel-controles').addClass('d-none');
-            $('#painel-coop').removeClass('d-none');
-        } else {
-            $('#painel-coop').addClass('d-none');
-            $('#painel-controles').removeClass('d-none');
-        }
+        $('#painel-controles').removeClass('d-none');
         return;
     }
-    $('#painel-controles, #painel-coop').addClass('d-none');
+    $('#painel-controles').addClass('d-none');
     $('#area-inicio').removeClass('d-none');
 
     if (estado.souCriador) {

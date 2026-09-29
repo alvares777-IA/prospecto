@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="pt-BR" data-answer="600" data-nivel="Jogo" data-titulo="TIM">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TIM — jogoDaVida</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1;flex-wrap:wrap;justify-content:center}
+  .hud b{color:#e2e8f0}
+  .objetivo{font-size:14px;color:#fde68a;text-align:center;max-width:640px;min-height:20px}
+  canvas{background:#0d1224;border:1px solid #1e2a45;border-radius:10px;touch-action:none;cursor:default}
+  .aviso{min-height:22px;font-size:14px;font-weight:600;text-align:center;max-width:640px}
+  .aviso.ok{color:#22c55e}
+  .aviso.erro{color:#ef4444}
+  .aviso.info{color:#94a3b8}
+  button{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:7px 14px;font-size:14px;cursor:pointer}
+  button:disabled{background:#334155;cursor:default;opacity:.6}
+  button.secundario{background:#334155}
+  button[aria-pressed="true"]{background:#facc15;color:#0f172a}
+  button.peca{background:#1e293b;border:1px solid #334155}
+  button.peca.ativa{background:#facc15;color:#0f172a;border-color:#facc15}
+  .caixa,.botoes{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .ajuda{font-size:12px;color:#64748b;max-width:640px;text-align:center;margin:0}
+  .ambiente{display:flex;gap:10px 22px;flex-wrap:wrap;justify-content:center;font-size:13px;color:#cbd5e1;
+    background:#111a2e;border:1px solid #1e2a45;border-radius:10px;padding:8px 14px}
+  .ambiente label{display:flex;align-items:center;gap:6px}
+  .ambiente input[type=range]{width:150px;accent-color:#facc15}
+  .ambiente input:disabled{opacity:.5}
+  .ambiente b{min-width:92px;color:#fde68a;font-weight:600}
+  .ambiente .ico{font-size:15px}
+</style>
+</head>
+<body>
+<div class="tela">
+  <h1>TIM — The Incredible Machine</h1>
+  <div class="hud">Desafio: <b id="nivel">1/1</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Meta: <b id="meta">300</b></div>
+  <div class="objetivo" id="objetivo"></div>
+  <canvas id="c" width="640" height="400"></canvas>
+  <div class="ambiente" role="group" aria-label="Ambiente">
+    <label>Gravidade <span class="ico" title="espaço">✦</span>
+      <input type="range" id="gravidade" min="0" max="2.5" step="0.01" value="1" list="marcasGravidade" aria-label="Gravidade">
+      <span class="ico" title="Júpiter">🪐</span> <b id="gravidadeTxt">Terra</b></label>
+    <label>Pressão do ar <span class="ico" title="vácuo">✦</span>
+      <input type="range" id="ar" min="0" max="3" step="0.01" value="1" list="marcasAr" aria-label="Pressão do ar">
+      <span class="ico" title="denso">🌊</span> <b id="arTxt">normal</b></label>
+    <datalist id="marcasGravidade"><option value="0"></option><option value="0.17"></option><option value="1"></option><option value="2.5"></option></datalist>
+    <datalist id="marcasAr"><option value="0"></option><option value="1"></option><option value="3"></option></datalist>
+  </div>
+  <div class="caixa" id="caixa"></div>
+  <div class="botoes">
+    <button id="btnIniciar">▶ Iniciar</button>
+    <button id="btnReplay" class="secundario" hidden>↺ Ver de novo</button>
+    <button id="btnProximo" hidden>Continuar →</button>
+    <button id="btnLenta" class="secundario" aria-pressed="false">🐢 Câmera lenta</button>
+    <button id="btnRemover" class="secundario" disabled>✕ Remover (Del)</button>
+    <button id="btnLimpar" class="secundario">Recomeçar desafio</button>
+    <button id="btnEnviar" disabled>Enviar pontuação</button>
+  </div>
+  <div class="aviso info" id="aviso">Escolha uma peça na caixa e clique no cenário para colocá-la.</div>
+  <p class="ajuda">Peças colocadas podem ser arrastadas. Clique numa peça para selecionar: arraste a alça ⟳ para girá-la
+  em qualquer ângulo (R gira de 15 em 15°); na gaiola do rato, o ⇋ espelha (F) e a roda passa a girar ao contrário.
+  Gravidade e pressão do ar mudam o ambiente: sem ar não há vento e a bexiga cai.
+  A bateria vai em cima de um ventilador — sem ela, ele não liga. O rato só corre quando uma bola encosta na gaiola;
+  a correia (clique no rato e depois na esteira) leva o giro da roda até a engrenagem da esteira.
+  O fole sopra quando uma bola cai em cima dele; a tesoura estoura a bexiga que chega nela.
+  Peças não podem encavalar umas nas outras. Monte, aperte Iniciar e veja se a máquina funciona.</p>
+</div>
+<script src="fim-jogo.js"></script>
+<script src="tim-fisica.js"></script>
+<script src="tim-niveis.js"></script>
+<script>
+(function () {
+  const F = window.TimFisica, DESAFIOS = window.TIM_NIVEIS;
+  const embutido = window.parent && window.parent !== window;
+  const META = Number(document.documentElement.getAttribute('data-answer')) || 300;
+  document.getElementById('meta').textContent = META;
+
+  // Teste local: abra este arquivo com ?nivel=N na URL pra pular direto pro
+  // desafio N (1-based), sem jogar os anteriores. ?niveis=N também define
+  // quantos desafios essa sessão de teste joga (padrão: só o N pedido em
+  // ?nivel). Sem parâmetros, comportamento normal (começa no 1). Ignorado
+  // quando embutido no jogoDaVida — lá quem manda é a config do servidor.
+  const paramsTeste = new URLSearchParams(location.search);
+  const lerParamNivel = (nome, padrao) => {
+    const v = parseInt(paramsTeste.get(nome), 10);
+    return Number.isFinite(v) ? Math.min(Math.max(v, 1), DESAFIOS.length) : padrao;
+  };
+  const NIVEL_INICIAL = lerParamNivel('nivel', 1);
+  const NIVEIS_INICIAL = lerParamNivel('niveis', NIVEL_INICIAL);
+
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  function ajustarTamanho() {
+    const tela = document.querySelector('.tela');
+    const folga = [...tela.children].filter(el => el !== cv && el.tagName !== 'SCRIPT')
+        .reduce((soma, el) => soma + el.offsetHeight, 0) + tela.children.length * 8 + 28 + 16;
+    const escala = Math.min((window.innerWidth - 24) / W, (window.innerHeight - folga) / H);
+    cv.style.width = Math.round(W * Math.max(escala, 0.3)) + 'px';
+    cv.style.height = Math.round(H * Math.max(escala, 0.3)) + 'px';
+  }
+  window.addEventListener('resize', ajustarTamanho);
+
+  const $ = id => document.getElementById(id);
+  const NOMES = { rampa: 'Rampa', trampolim: 'Trampolim', ventilador: 'Ventilador', bateria: 'Bateria', esteira: 'Esteira', rato: 'Rato', correia: 'Correia',
+    basquete: 'Bola de basquete', tenis: 'Bola de tênis', boliche: 'Bola de boliche', fole: 'Fole', tesoura: 'Tesoura' };
+  const ehBola = p => !!F.BOLAS[p.tipo];
+  const GIRAVEIS = ['rampa', 'trampolim', 'ventilador', 'esteira', 'fole', 'tesoura', 'rato'];   // ganham a alça ⟳
+  const PASSO_GIRO = 5;   // graus: a alça "encaixa" de 5 em 5
+  const GW = F.GAIOLA.w, GH = F.GAIOLA.h;
+  const LENTA = 4;        // câmera lenta: 1 passo de física a cada 4 quadros
+
+  let niveis = NIVEIS_INICIAL, nivel = NIVEL_INICIAL, pontos = 0, resolvido = false, fimDeJogo = false;
+  let desafio, pecas, caixa, modo = null, selecionada = null, arrastando = null, girandoAlca = null, mouse = null;
+  let correiaInicio = null, proxId = 1;   // 1º clique da correia (rato ou esteira)
+  let mundo = null, rodando = false, venceuEste = false, particulas = [];
+  let camLenta = false, acumulado = 0;
+  let pecasDaVitoria = null, ambienteDaVitoria = null, reprisando = false;   // "ver de novo": a montagem que resolveu
+  const ESPELHAVEIS = ['rato'];   // ganham o ícone ⇋ (espelhar)
+  let ambiente = { gravidade: 1, ar: 1 };
+
+  // ── painel de ambiente: gravidade e pressão do ar ──
+  const MARCAS_GRAVIDADE = [[0, 'espaço'], [0.17, 'Lua'], [1, 'Terra'], [2.5, 'Júpiter']];
+  const MARCAS_AR = [[0, 'vácuo'], [1, 'normal'], [3, 'denso']];
+  function encaixar(v, marcas) { for (const [m] of marcas) if (Math.abs(v - m) <= 0.06) return m; return Math.round(v * 20) / 20; }
+  function nomeDe(v, marcas) { const m = marcas.find(([x]) => x === v); return m ? m[1] : `×${v.toFixed(2).replace(/0$/, '')}`; }
+  function mostrarAmbiente() {
+    $('gravidade').value = ambiente.gravidade; $('ar').value = ambiente.ar;
+    $('gravidadeTxt').textContent = nomeDe(ambiente.gravidade, MARCAS_GRAVIDADE);
+    $('arTxt').textContent = nomeDe(ambiente.ar, MARCAS_AR);
+  }
+  for (const [id, marcas] of [['gravidade', MARCAS_GRAVIDADE], ['ar', MARCAS_AR]]) {
+    $(id).addEventListener('input', () => { ambiente = { ...ambiente, [id]: encaixar(Number($(id).value), marcas) }; mostrarAmbiente(); });
+  }
+
+  // ── som ──
+  let actx = null;
+  function bip(freq, dur, atraso, tipo, vol) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      const t = actx.currentTime + (atraso || 0), o = actx.createOscillator(), g = actx.createGain();
+      o.type = tipo || 'square'; o.frequency.value = freq; o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.18, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  const som = {
+    por: () => bip(520, 0.05, 0, 'triangle'), tirar: () => bip(260, 0.06, 0, 'triangle'),
+    ligar: () => { bip(300, 0.05); bip(600, 0.08, 0.05); },
+    iniciar: () => { bip(200, 0.1, 0, 'sawtooth', 0.1); bip(400, 0.12, 0.08, 'sawtooth', 0.1); },
+    quique: () => bip(180, 0.04, 0, 'sine', 0.12),
+    estouro: () => { bip(900, 0.03, 0, 'square', 0.25); bip(120, 0.08, 0.02, 'sawtooth', 0.15); },
+    venceu: () => { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.25, 0.27); },
+    falhou: () => { bip(300, 0.14); bip(200, 0.22, 0.12); },
+  };
+
+  function avisar(t, tipo) { $('aviso').className = 'aviso ' + (tipo || 'info'); $('aviso').textContent = t; }
+  function atualizarHud() {
+    $('pontos').textContent = pontos;
+    $('nivel').textContent = nivel + '/' + niveis;
+    $('btnEnviar').disabled = resolvido || pontos <= 0;
+  }
+
+  // ── desafio ──
+  function novoJogo() {
+    FimJogo.esconder();
+    nivel = 1; pontos = 0; fimDeJogo = false; resolvido = false;
+    carregarDesafio();
+  }
+
+  function carregarDesafio() {
+    desafio = DESAFIOS[nivel - 1];
+    pecas = [];
+    caixa = { ...desafio.caixa };
+    modo = null; selecionada = null; correiaInicio = null; mundo = null; rodando = false; venceuEste = false;
+    pecasDaVitoria = null; ambienteDaVitoria = null; reprisando = false;
+    ambiente = { gravidade: 1, ar: 1, ...(desafio.ambiente || {}) };
+    mostrarAmbiente();
+    $('objetivo').textContent = `Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
+    renderCaixa(); atualizarBotoes(); atualizarHud();
+    avisar('Escolha uma peça na caixa e clique no cenário para colocá-la.', 'info');
+    ajustarTamanho();
+  }
+
+  function renderCaixa() {
+    const el = $('caixa'); el.innerHTML = '';
+    for (const [tipo, qtd] of Object.entries(caixa)) {
+      const b = document.createElement('button');
+      b.className = 'peca' + (modo === tipo ? ' ativa' : '');
+      b.textContent = `${NOMES[tipo]} ×${qtd}`;
+      b.disabled = qtd <= 0 || rodando || !!pecasDaVitoria;
+      b.onclick = () => { modo = modo === tipo ? null : tipo; selecionada = null; correiaInicio = null; renderCaixa(); atualizarBotoes();
+        if (modo === 'bateria') avisar('Clique em cima de um ventilador para ligar a bateria nele.', 'info');
+        else if (modo === 'correia') avisar('Clique num rato e depois na esteira que ele vai mover (ou ao contrário).', 'info');
+        else if (modo === 'rato') avisar('Clique no cenário pra colocar a gaiola do rato onde uma bola vai encostar.', 'info');
+        else if (modo) avisar(`Clique no cenário para colocar: ${NOMES[modo]}.`, 'info'); };
+      el.appendChild(b);
+    }
+  }
+
+  function atualizarBotoes() {
+    const venceu = !!pecasDaVitoria;   // resolvido: montagem congelada, só dá para rever ou continuar
+    const editavel = !rodando && !fimDeJogo && !venceu;
+    $('btnIniciar').textContent = rodando ? '■ Parar' : '▶ Iniciar';
+    $('btnIniciar').disabled = fimDeJogo || venceu;
+    $('btnIniciar').hidden = venceu;
+    $('btnReplay').hidden = $('btnProximo').hidden = !venceu;
+    $('btnReplay').disabled = rodando;
+    $('btnProximo').textContent = nivel < niveis ? 'Próximo desafio →' : 'Ver resultado →';
+    $('btnRemover').disabled = !editavel || !selecionada;
+    $('btnLimpar').disabled = !editavel;
+    $('gravidade').disabled = $('ar').disabled = !editavel;
+    cv.style.cursor = !editavel ? 'default' : modo ? 'copy' : 'pointer';
+  }
+
+  const snap = v => Math.round(v / 10) * 10;
+  const todas = () => [...desafio.fixas, ...pecas];
+  function novaPeca(tipo, x, y) {
+    if (tipo === 'rampa') return { tipo, x, y, ang: 15, len: 120 };
+    if (tipo === 'trampolim') return { tipo, x, y, ang: 0 };
+    if (tipo === 'ventilador') return { tipo, x, y, dir: 1, ang: 0, ligado: false };
+    if (tipo === 'esteira') return { tipo, x, y, w: F.ESTEIRA.w, h: F.ESTEIRA.h, dir: 1, ang: 0 };
+    if (tipo === 'rato') return { tipo, x, y, ang: 0 };
+    if (tipo === 'fole') return { tipo, x, y, dir: 1, ang: 0 };
+    if (tipo === 'tesoura') return { tipo, x, y, dir: 1, ang: 0 };
+    if (F.BOLAS[tipo]) return { tipo, x, y };
+  }
+  const livre = (p, lista) => !F.sobrepoe(p, desafio, lista);
+
+  function pertoDoSegmento(x, y, x1, y1, x2, y2, dist) {
+    const ex = x2 - x1, ey = y2 - y1, t = Math.max(0, Math.min(1, ((x - x1) * ex + (y - y1) * ey) / (ex * ex + ey * ey || 1)));
+    return Math.hypot(x - (x1 + ex * t), y - (y1 + ey * t)) <= dist;
+  }
+  // área clicável de uma peça (para selecionar/arrastar)
+  function acerta(p, x, y) {
+    if (p.tipo !== 'rampa' && GIRAVEIS.includes(p.tipo)) {   // peça girada: testa no referencial dela
+      const [lx, ly] = F.paraLocal(p, x, y); x = p.x + lx; y = p.y + ly;
+    }
+    if (p.tipo === 'ventilador') return Math.abs(x - p.x) <= 18 && Math.abs(y - p.y) <= 18;
+    if (p.tipo === 'trampolim') return Math.abs(x - p.x) <= 38 && Math.abs(y - p.y) <= 12;
+    if (p.tipo === 'esteira') return Math.abs(x - p.x) <= (p.w || F.ESTEIRA.w) / 2 + 4 && Math.abs(y - p.y) <= (p.h || F.ESTEIRA.h) / 2 + 10;
+    if (p.tipo === 'rato') return Math.abs(x - p.x) <= GW / 2 && Math.abs(y - p.y) <= GH / 2;
+    if (p.tipo === 'fole') return Math.abs(x - p.x) <= F.FOLE.w / 2 + 6 && Math.abs(y - p.y) <= F.FOLE.h / 2 + 8;
+    if (p.tipo === 'tesoura') return Math.abs(x - p.x) <= F.TESOURA.w / 2 + 4 && Math.abs(y - p.y) <= F.TESOURA.h / 2 + 6;
+    if (p.tipo === 'engrenagem') return Math.hypot(x - p.x, y - p.y) <= (p.r || 18) + 3;
+    if (ehBola(p)) return Math.hypot(x - p.x, y - p.y) <= F.BOLAS[p.tipo].r + 5;
+    if (p.tipo === 'correia') {
+      const pc = F.pontasCorreia(p, todas());
+      return !!pc && pertoDoSegmento(x, y, ...pc.ga, ...pc.gb, 8);
+    }
+    if (p.tipo === 'rampa') {
+      const [[x1, y1, x2, y2]] = F.segmentosDe(p);
+      return pertoDoSegmento(x, y, x1, y1, x2, y2, 10);
+    }
+    return false;
+  }
+  // peças colocadas: primeiro as "de corpo", depois as correias (que passam por cima de tudo)
+  const pecaEm = (x, y) => [...pecas].reverse().find(p => p.tipo !== 'correia' && acerta(p, x, y))
+      || [...pecas].reverse().find(p => p.tipo === 'correia' && acerta(p, x, y));
+  // rato ou esteira (fixa ou colocada) onde a correia pode se prender
+  const poliaEm = (x, y) => [...todas()].reverse().find(p => ['rato', 'esteira', 'engrenagem'].includes(p.tipo) && acerta(p, x, y));
+  const temCorreia = p => todas().some(c => c.tipo === 'correia' && (c.de === p.id || c.para === p.id));
+
+  // Alça ⟳ da peça selecionada: na ponta da rampa, ou "acima" das outras (gira junto com a peça).
+  const girável = p => !!p && GIRAVEIS.includes(p.tipo);
+  function pontoAlca(p) {
+    if (p.tipo === 'rampa') return F.girarPt(p, (p.len || 120) / 2 + 18, 0);
+    return F.girarPt(p, 0, -((F.tamanho(p).h || 0) / 2 + 24));
+  }
+  const naAlca = (p, x, y) => girável(p) && Math.hypot(x - pontoAlca(p)[0], y - pontoAlca(p)[1]) <= 11;
+  // Ícone ⇋ (espelhar) ao lado da gaiola do rato.
+  const espelhável = p => !!p && ESPELHAVEIS.includes(p.tipo);
+  const pontoEspelho = p => F.girarPt(p, (F.tamanho(p).w || 0) / 2 + 18, 0);
+  const noEspelho = (p, x, y) => espelhável(p) && Math.hypot(x - pontoEspelho(p)[0], y - pontoEspelho(p)[1]) <= 11;
+  function espelhar() {
+    const p = selecionada;
+    if (rodando || pecasDaVitoria || !espelhável(p)) return;
+    p.espelho = !p.espelho;
+    if (!livre(p, pecas)) { p.espelho = !p.espelho; return avisar('Espelhada assim ela encosta em outra peça.', 'erro'); }
+    som.por();
+    avisar(p.espelho ? 'Gaiola espelhada: a roda agora gira ao contrário.' : 'Gaiola de volta ao normal.', 'info');
+  }
+  const normalizar = a => ((Math.round(a) % 360) + 540) % 360 - 180;   // (-180, 180]
+  function mudarAngulo(p, ang) {   // só gira para um ângulo onde a peça não encavale em nada
+    const antes = p.ang || 0;
+    p.ang = normalizar(ang);
+    if (!livre(p, pecas)) { p.ang = antes; return false; }
+    return true;
+  }
+
+  function posMouse(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+  }
+
+  function prenderCorreia(m) {
+    const alvo = poliaEm(m.x, m.y);
+    if (!alvo) return avisar('Clique num rato ou numa esteira pra prender a correia.', 'erro');
+    if (temCorreia(alvo)) return avisar(alvo.tipo === 'rato' ? 'Esse rato já tem correia.' : 'Essa esteira já tem correia.', 'erro');
+    if (!correiaInicio || correiaInicio === alvo) {
+      correiaInicio = alvo; som.por();
+      return avisar(alvo.tipo === 'rato' ? 'Agora clique na esteira que esse rato vai mover.' : 'Agora clique no rato que vai mover essa esteira.', 'info');
+    }
+    if ((alvo.tipo === 'rato') === (correiaInicio.tipo === 'rato')) return avisar('A correia liga um rato a uma esteira (ou engrenagem).', 'erro');
+    const rato = alvo.tipo === 'rato' ? alvo : correiaInicio, movida = alvo.tipo === 'rato' ? correiaInicio : alvo;
+    const c = { tipo: 'correia', id: 'c' + proxId++, de: rato.id, para: movida.id };
+    if (F.pontasCorreia(c, todas()).comprimento > F.CORREIA_MAX) return avisar('Longe demais — a correia não alcança. Aproxime o rato da esteira.', 'erro');
+    pecas.push(c); caixa.correia--; correiaInicio = null; selecionada = c; som.ligar();
+    if (!caixa.correia) modo = null;
+    renderCaixa(); atualizarBotoes();
+    avisar('Correia presa! Quando o rato correr, a esteira anda.', 'ok');
+  }
+
+  cv.addEventListener('mousedown', e => {
+    if (rodando || fimDeJogo || pecasDaVitoria) return;
+    const m = posMouse(e);
+    if (!modo && naAlca(selecionada, m.x, m.y)) { girandoAlca = selecionada; return; }
+    if (!modo && noEspelho(selecionada, m.x, m.y)) return espelhar();
+    if (modo === 'bateria') {
+      const v = pecas.find(p => p.tipo === 'ventilador' && acerta(p, m.x, m.y));
+      if (!v) return avisar('A bateria precisa ir em cima de um ventilador.', 'erro');
+      if (v.ligado) return avisar('Esse ventilador já tem bateria.', 'erro');
+      v.ligado = true; caixa.bateria--; som.ligar();
+      if (!caixa.bateria) modo = null;
+      renderCaixa(); atualizarBotoes();
+      return avisar('Ventilador ligado! Ele vai soprar quando a máquina rodar.', 'ok');
+    }
+    if (modo === 'correia') return prenderCorreia(m);
+    if (modo) {
+      const p = novaPeca(modo, snap(m.x), snap(m.y));
+      if (p.tipo === 'rato' || p.tipo === 'esteira') p.id = 'p' + proxId++;
+      if (!livre(p, [...pecas, p])) return avisar('Não cabe aí — encosta em outra peça ou bola. Escolha um lugar livre.', 'erro');
+      pecas.push(p); caixa[modo]--; som.por();
+      selecionada = p;
+      if (!caixa[modo]) modo = null;
+      renderCaixa(); atualizarBotoes();
+      if (p.tipo === 'ventilador') return avisar('Ventilador colocado — falta a bateria. Arraste a alça ⟳ para apontar o sopro.', 'info');
+      if (p.tipo === 'rato') return avisar('Gaiola colocada. Uma bola precisa encostar nela; ligue uma correia até a esteira. ⇋ (ou F) espelha: a roda gira ao contrário.', 'info');
+      if (p.tipo === 'fole') return avisar('Fole colocado — ele sopra quando uma bola cai em cima. Arraste a alça ⟳ para apontar o sopro.', 'info');
+      if (p.tipo === 'tesoura') return avisar('Tesoura colocada — arraste a alça ⟳ para apontar as lâminas.', 'info');
+      if (ehBola(p)) return avisar('Bola colocada — ela cai quando a máquina rodar.', 'info');
+      return avisar('Peça colocada. Arraste para ajustar; a alça ⟳ gira.', 'info');
+    }
+    const p = pecaEm(m.x, m.y);
+    selecionada = p || null;
+    if (p && p.tipo !== 'correia') arrastando = { p, dx: p.x - m.x, dy: p.y - m.y };
+    atualizarBotoes();
+  });
+  cv.addEventListener('mousemove', e => {
+    mouse = posMouse(e);
+    if (girandoAlca && !rodando) {   // ângulo do centro até o mouse (a alça das peças fica a -90°)
+      const p = girandoAlca, a = Math.atan2(mouse.y - p.y, mouse.x - p.x) * 180 / Math.PI + (p.tipo === 'rampa' ? 0 : 90);
+      mudarAngulo(p, Math.round(a / PASSO_GIRO) * PASSO_GIRO);
+      return;
+    }
+    if (!rodando && !modo) cv.style.cursor = naAlca(selecionada, mouse.x, mouse.y) ? 'grab'
+      : noEspelho(selecionada, mouse.x, mouse.y) ? 'pointer' : (pecasDaVitoria ? 'default' : 'pointer');
+    if (arrastando && !rodando) {   // só anda para um lugar livre (peças não se encavalam)
+      const p = arrastando.p, x0 = p.x, y0 = p.y;
+      p.x = snap(mouse.x + arrastando.dx); p.y = snap(mouse.y + arrastando.dy);
+      if (!livre(p, pecas)) { p.x = x0; p.y = y0; }
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (girandoAlca) { som.por(); avisar(`${NOMES[girandoAlca.tipo]} girado para ${normalizar(girandoAlca.ang || 0)}°.`, 'info'); }
+    arrastando = null; girandoAlca = null;
+  });
+  cv.addEventListener('mouseleave', () => { mouse = null; });
+
+  function girar() {   // atalho R: +15°
+    const p = selecionada;
+    if (rodando || pecasDaVitoria || !girável(p)) return;
+    if (!mudarAngulo(p, (p.ang || 0) + 15)) return avisar('Girada assim ela encosta em outra peça.', 'erro');
+    som.por();
+    avisar(`${NOMES[p.tipo]} girado para ${p.ang}°.`, 'info');
+  }
+  function remover() {
+    const p = selecionada;
+    if (!p || rodando) return;
+    // tirar um rato ou esteira solta as correias presas nele
+    const soltas = p.tipo === 'correia' ? [p] : pecas.filter(c => c.tipo === 'correia' && (c.de === p.id || c.para === p.id));
+    pecas = pecas.filter(x => x !== p && !soltas.includes(x));
+    if (p.tipo !== 'correia') caixa[p.tipo]++;
+    if (soltas.length) caixa.correia = (caixa.correia || 0) + soltas.length;
+    if (p.tipo === 'ventilador' && p.ligado) caixa.bateria++;
+    selecionada = null; som.tirar(); renderCaixa(); atualizarBotoes();
+  }
+  $('btnRemover').onclick = remover;
+  $('btnLimpar').onclick = () => { if (!rodando) carregarDesafio(); };
+  window.addEventListener('keydown', e => {
+    if (e.key === 'r' || e.key === 'R') girar();
+    if (e.key === 'f' || e.key === 'F') espelhar();
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remover(); }
+    if (e.key === 'Escape') { modo = null; selecionada = null; correiaInicio = null; renderCaixa(); atualizarBotoes(); }
+  });
+
+  // ── rodar a máquina ──
+  function rodar() {
+    modo = null; selecionada = null; correiaInicio = null; venceuEste = false;
+    mundo = F.criarMundo(desafio, pecas.map(p => ({ ...p })), ambiente);
+    rodando = true; particulas = []; ratosCorrendo = 0; estouros = []; acumulado = 0;
+    som.iniciar(); renderCaixa(); atualizarBotoes();
+  }
+  $('btnIniciar').onclick = () => {
+    if (rodando) { parar(); avisar('Parado. Ajuste as peças e tente de novo.', 'info'); return; }
+    rodar();
+    avisar('Rodando…', 'info');
+  };
+  function parar() { rodando = false; mundo = null; renderCaixa(); atualizarBotoes(); }
+
+  // Ver de novo: a física é determinística, então rodar a mesma montagem repete a animação igualzinha.
+  $('btnReplay').onclick = () => {
+    if (rodando || !pecasDaVitoria) return;
+    pecas = pecasDaVitoria.map(p => ({ ...p }));
+    ambiente = { ...ambienteDaVitoria }; mostrarAmbiente();
+    reprisando = true; rodar();
+    avisar(camLenta ? 'Repetindo em câmera lenta…' : 'Repetindo a animação…', 'info');
+  };
+  $('btnProximo').onclick = () => {
+    if (rodando || !pecasDaVitoria) return;
+    if (nivel < niveis) { nivel++; carregarDesafio(); return; }
+    fimDeJogo = true; pecasDaVitoria = null; atualizarBotoes();
+    avisar(`Todos os ${niveis} desafio(s) resolvidos! Pontuação: ${pontos}.`, 'ok');
+    FimJogo.mostrar({
+      venceu: true, pontos, meta: META, embutido,
+      titulo: 'Máquinas montadas!', detalhe: `Você resolveu os ${niveis} desafio(s).`,
+      aoEnviar: enviarTentativa, aoRepetir: novoJogo,
+    });
+  };
+  $('btnLenta').onclick = () => {
+    camLenta = !camLenta;
+    $('btnLenta').setAttribute('aria-pressed', String(camLenta));
+    $('btnLenta').textContent = camLenta ? '🐢 Câmera lenta: ligada' : '🐢 Câmera lenta';
+  };
+
+  function aoResolver() {
+    rodando = false; venceuEste = true;
+    if (reprisando) {   // rever não vale ponto de novo
+      atualizarBotoes();
+      return avisar('Funcionou de novo! Quer ver mais uma vez ou continuar?', 'ok');
+    }
+    pecasDaVitoria = pecas.map(p => ({ ...p })); ambienteDaVitoria = { ...ambiente };
+    pontos += 100; som.venceu(); atualizarHud(); atualizarBotoes();
+    avisar(`Desafio ${nivel} resolvido! +100. Veja de novo (dá pra ligar a câmera lenta) ou continue.`, 'ok');
+  }
+
+  function enviarTentativa() {
+    if (resolvido) return;
+    if (!embutido) { avisar('Abra este jogo pelo jogoDaVida para valer.', 'erro'); return; }
+    window.parent.postMessage({ tipo: 'tentativa', valor: String(pontos) }, location.origin);
+  }
+  $('btnEnviar').onclick = enviarTentativa;
+
+  window.addEventListener('message', e => {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'config') {
+      const n = Number(d.valores?.niveis);
+      if (Number.isFinite(n) && n >= 1) niveis = Math.min(Math.floor(n), DESAFIOS.length);
+      atualizarHud();
+      return;
+    }
+    if (d.tipo !== 'resultado') return;
+    FimJogo.resultado(!!d.correto);
+    if (d.correto) { resolvido = true; avisar(`✓ Resolvido! Pontuação ${pontos} (meta ${META}).`, 'ok'); }
+    else avisar(`Ainda não chegou na meta (${META}). Resolva mais desafios.`, 'erro');
+    atualizarHud();
+  });
+
+  // ── desenho ──
+  function desenharBloco(p) {
+    ctx.fillStyle = '#7c4a2d'; ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+    for (let y = p.y + 7; y < p.y + p.h; y += 7) { ctx.beginPath(); ctx.moveTo(p.x, y); ctx.lineTo(p.x + p.w, y); ctx.stroke(); }
+    for (let y = p.y, i = 0; y < p.y + p.h; y += 7, i++) for (let x = p.x + (i % 2 ? 7 : 14); x < p.x + p.w; x += 14) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, Math.min(y + 7, p.y + p.h)); ctx.stroke();
+    }
+  }
+  function desenharRampa(p, destaque) {
+    const [[x1, y1, x2, y2]] = F.segmentosDe(p);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.strokeStyle = destaque ? '#fde68a' : '#c08a4d'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+  function desenharTrampolim(p) {
+    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+    for (let i = -30; i <= 30; i += 12) { ctx.beginPath(); ctx.moveTo(p.x + i, p.y + 2); ctx.lineTo(p.x + i + 4, p.y + 6); ctx.lineTo(p.x + i, p.y + 8); ctx.stroke(); }
+    ctx.fillStyle = '#dc2626'; ctx.fillRect(p.x - 38, p.y - 3, 76, 6);
+    ctx.fillStyle = '#111827'; ctx.fillRect(p.x - 34, p.y - 2, 68, 3);
+  }
+  function desenharCesto(p) {
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+    for (let x = p.x + 8; x < p.x + 64; x += 8) { ctx.beginPath(); ctx.moveTo(x, p.y + 4); ctx.lineTo(x - 4, p.y + 44); ctx.stroke(); }
+    for (let y = p.y + 12; y < p.y + 46; y += 10) { ctx.beginPath(); ctx.moveTo(p.x, y); ctx.lineTo(p.x + 64, y); ctx.stroke(); }
+    ctx.strokeStyle = '#f97316'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x, p.y + 46); ctx.lineTo(p.x + 64, p.y + 46); ctx.lineTo(p.x + 64, p.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p.x - 4, p.y); ctx.lineTo(p.x + 68, p.y); ctx.stroke();
+  }
+  function desenharCano(p) {   // passagem fechada dos dois lados
+    const [esq, dir] = F.paredesCano(p);
+    ctx.fillStyle = 'rgba(71,85,105,.35)';
+    ctx.beginPath(); [...esq, ...[...dir].reverse()].forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const parede of [esq, dir]) {
+      for (const [cor, larg] of [['#475569', 7], ['#cbd5e1', 3]]) {
+        ctx.strokeStyle = cor; ctx.lineWidth = larg;
+        ctx.beginPath(); parede.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+      }
+    }
+    ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  }
+  function desenharVentilador(p, t) {
+    ctx.fillStyle = '#475569'; ctx.fillRect(p.x - 15, p.y - 15, 30, 30);
+    ctx.fillStyle = '#1e293b'; ctx.beginPath(); ctx.arc(p.x + 3 * p.dir, p.y, 11, 0, Math.PI * 2); ctx.fill();
+    const giro = p.ligado && rodando ? t / 40 : 0.4;
+    ctx.fillStyle = '#cbd5e1';
+    for (let i = 0; i < 3; i++) {
+      const a = giro + i * 2.094;
+      ctx.beginPath(); ctx.ellipse(p.x + 3 * p.dir + Math.cos(a) * 5, p.y + Math.sin(a) * 5, 5, 2.4, a, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.moveTo(p.x + 17 * p.dir, p.y); ctx.lineTo(p.x + 11 * p.dir, p.y - 4); ctx.lineTo(p.x + 11 * p.dir, p.y + 4); ctx.fill();
+    if (p.ligado) {   // bateria em cima
+      ctx.fillStyle = '#16a34a'; ctx.fillRect(p.x - 9, p.y - 25, 18, 10);
+      ctx.fillStyle = '#e2e8f0'; ctx.fillRect(p.x + 9, p.y - 22, 3, 4);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 8px system-ui'; ctx.textAlign = 'center'; ctx.fillText('+ −', p.x, p.y - 17); ctx.textAlign = 'start';
+    }
+  }
+  function desenharEngrenagem(cx, cy, r, ang) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.fillStyle = '#cbd5e1';
+    for (let i = 0; i < 8; i++) { ctx.save(); ctx.rotate(i * Math.PI / 4); ctx.fillRect(-1.5, -r - 2, 3, 4); ctx.restore(); }
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#334155'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-r * 0.6, 0); ctx.lineTo(r * 0.6, 0); ctx.moveTo(0, -r * 0.6); ctx.lineTo(0, r * 0.6); ctx.stroke();
+    ctx.restore();
+  }
+  function desenharEsteira(p, t, destaque, ligada) {
+    const w = p.w || F.ESTEIRA.w, h = p.h || F.ESTEIRA.h, x = p.x - w / 2, y = p.y - h / 2;
+    ctx.fillStyle = '#1e3a8a'; ctx.fillRect(x - 5, y - 3, w + 10, h + 6);
+    ctx.fillStyle = destaque ? '#fde68a' : '#1e40af'; ctx.fillRect(x, y, w, h);
+    const desloc = ligada ? (t / 12) * (p.dir || 1) : 0;
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = '#60a5fa';
+    for (let i = 0; i < w + 14; i += 14) {
+      const px = x + (((i + desloc) % (w + 14)) + (w + 14)) % (w + 14) - 7;
+      ctx.fillRect(px, y + 2, 6, h - 4);
+    }
+    ctx.restore();
+    ctx.fillStyle = '#94a3b8';   // roletes das pontas
+    ctx.beginPath(); ctx.arc(x, y + h / 2, h / 2 + 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + w, y + h / 2, h / 2 + 2, 0, Math.PI * 2); ctx.fill();
+    const gx = p.x + w * 0.2, gy = p.y;   // no referencial da peça (o desenho já está girado)
+    desenharEngrenagem(gx, gy, 7, ligada ? t / 50 : 0);
+  }
+  function desenharRato(p, t, ativo, destaque) {
+    const x = p.x - GW / 2, y = p.y - GH / 2;
+    ctx.fillStyle = '#14532d'; ctx.fillRect(x, y, GW, GH);
+    ctx.strokeStyle = destaque ? '#fde68a' : '#22c55e'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, GW - 2, GH - 2);
+    // roda com o rato correndo dentro
+    const cx = p.x - 6, cy = p.y + 3, R = 13, giro = ativo ? t / 45 : 0;
+    ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 8; i++) { const a = giro + i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); ctx.stroke(); }
+    const pulo = ativo ? Math.sin(t / 60) * 1.5 : 0;
+    ctx.fillStyle = '#f5f5f4'; ctx.beginPath(); ctx.ellipse(cx, cy + R - 5 + pulo, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 6, cy + R - 7 + pulo, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fb7185'; ctx.beginPath(); ctx.arc(cx + 5, cy + R - 10 + pulo, 1.3, 0, Math.PI * 2); ctx.fill();
+    // grade da gaiola
+    ctx.strokeStyle = 'rgba(226,232,240,.35)'; ctx.lineWidth = 1;
+    for (let gx = x + 6; gx < x + GW; gx += 6) { ctx.beginPath(); ctx.moveTo(gx, y + 2); ctx.lineTo(gx, y + GH - 2); ctx.stroke(); }
+    const ex = p.x + 14, ey = p.y - 8;   // no referencial da peça (o desenho já está girado)
+    desenharEngrenagem(ex, ey, 6, giro);
+  }
+  function desenharFole(p, apertado, destaque) {   // ventilador manual: sanfona com cabos, bocal virado para `dir`
+    const d = p.dir || 1, w = F.FOLE.w, h = F.FOLE.h, abre = apertado ? 0.45 : 1;
+    const x0 = p.x - d * w / 2, x1 = p.x + d * (w / 2 - 8);   // traseira (cabos) e ponta da sanfona
+    ctx.fillStyle = destaque ? '#fde68a' : '#d6d3d1';
+    ctx.beginPath(); ctx.moveTo(x0, p.y - h / 2 * abre); ctx.lineTo(x1, p.y - 3); ctx.lineTo(x1, p.y + 3); ctx.lineTo(x0, p.y + h / 2 * abre); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#57534e'; ctx.lineWidth = 1;
+    for (let i = 1; i < 5; i++) {   // dobras da sanfona
+      const fx = x0 + (x1 - x0) * i / 5, fh = (h / 2 * abre) * (1 - i / 5) + 3 * i / 5;
+      ctx.beginPath(); ctx.moveTo(fx, p.y - fh); ctx.lineTo(fx, p.y + fh); ctx.stroke();
+    }
+    ctx.fillStyle = '#b45309'; ctx.fillRect(Math.min(x1, x1 + d * 10), p.y - 2.5, 10, 5);   // bocal
+    ctx.strokeStyle = '#b91c1c'; ctx.lineWidth = 3; ctx.lineCap = 'round';   // cabos
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x0 + d * 4, p.y + s * h / 2 * abre * 0.8); ctx.lineTo(x0 - d * 6, p.y + s * (h / 2 * abre + 4)); ctx.stroke(); }
+    ctx.lineCap = 'butt';
+  }
+  function desenharTesoura(p, destaque) {
+    const d = p.dir || 1;
+    ctx.strokeStyle = destaque ? '#fde68a' : '#e5e7eb'; ctx.lineWidth = 3; ctx.lineCap = 'round';   // lâminas apontando para `dir`
+    ctx.beginPath(); ctx.moveTo(p.x - d * 2, p.y); ctx.lineTo(p.x + d * 17, p.y - 4); ctx.moveTo(p.x - d * 2, p.y); ctx.lineTo(p.x + d * 17, p.y + 4); ctx.stroke();
+    ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 3;   // cabos
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(p.x - d * 10, p.y + s * 4, 6, 3.5, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = '#94a3b8'; ctx.beginPath(); ctx.arc(p.x - d * 2, p.y, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.lineCap = 'butt';
+  }
+  function desenharEngrenagemGrande(p, t, girando) {
+    const r = p.r || 18, giro = girando ? t / 250 : 0;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(giro);
+    ctx.fillStyle = '#9ca3af';
+    for (let i = 0; i < 12; i++) { ctx.save(); ctx.rotate(i * Math.PI / 6); ctx.fillRect(-2.5, -r - 4, 5, 6); ctx.restore(); }
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#374151';
+    for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; ctx.beginPath(); ctx.arc(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, r * 0.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#e5e7eb'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function desenharEstouro(x, y, idade) {   // "pof" da bexiga
+    const k = idade / 20;
+    ctx.strokeStyle = `rgba(239,68,68,${1 - k})`; ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, r1 = 8 + k * 14, r2 = 14 + k * 18;
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.lineTo(x + Math.cos(a) * r2, y + Math.sin(a) * r2); ctx.stroke();
+    }
+  }
+  function desenharCorreia(ga, gb, t, ativa, frouxa, destaque) {   // correia em laço entre as duas engrenagens
+    const dx = gb[0] - ga[0], dy = gb[1] - ga[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L * 5, ny = dx / L * 5;
+    ctx.strokeStyle = frouxa ? '#ef4444' : destaque ? '#fde68a' : '#e5e7eb'; ctx.lineWidth = 1.5;
+    if (frouxa) ctx.setLineDash([5, 4]);
+    else if (ativa) { ctx.setLineDash([8, 3]); ctx.lineDashOffset = -((t / 15) % 11); }
+    for (const s of [1, -1]) {
+      ctx.beginPath(); ctx.moveTo(ga[0] + nx * s, ga[1] + ny * s); ctx.lineTo(gb[0] + nx * s, gb[1] + ny * s); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  }
+  function desenharEstrela(o, t) {
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2, R = 20 + Math.sin(t / 300) * 2;
+    ctx.fillStyle = 'rgba(250,204,21,.12)'; ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = '#facc15'; ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const r = i % 2 ? R / 2.4 : R, a = -Math.PI / 2 + i * Math.PI / 5; ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+    ctx.closePath(); ctx.fill();
+  }
+  function desenharBola(b) {
+    if (b.tipo === 'balao' || b.tipo === 'bexiga') {
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(b.x, b.y + b.r); ctx.quadraticCurveTo(b.x + 5, b.y + b.r + 10, b.x, b.y + b.r + 20); ctx.stroke();
+      ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.ellipse(b.x, b.y, b.r * 0.9, b.r, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.ellipse(b.x - 4, b.y - 5, 3, 5, -0.4, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
+    ctx.fillStyle = b.tipo === 'boliche' ? '#2563eb' : b.tipo === 'tenis' ? '#a3e635' : '#ea580c';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    if (b.tipo === 'tenis') {   // costura
+      ctx.strokeStyle = '#f7fee7'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(b.x - b.r, b.y, b.r * 0.8, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.x + b.r, b.y, b.r * 0.8, Math.PI - 0.9, Math.PI + 0.9); ctx.stroke();
+    }
+    if (b.tipo === 'boliche') {   // brilho + furos
+      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(b.x - 4, b.y - 5, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      for (const [fx, fy] of [[3, -4], [6, -1], [3, 1]]) { ctx.beginPath(); ctx.arc(b.x + fx, b.y + fy, 1.3, 0, Math.PI * 2); ctx.fill(); }
+    }
+    if (b.tipo === 'basquete') {
+      ctx.strokeStyle = '#1c1917'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(b.x - b.r, b.y); ctx.lineTo(b.x + b.r, b.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.x, b.y - b.r); ctx.lineTo(b.x, b.y + b.r); ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.7, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.7, Math.PI - 0.9, Math.PI + 0.9); ctx.stroke();
+    }
+  }
+  function desenharAlca(p) {
+    const [ax, ay] = pontoAlca(p), ativa = girandoAlca === p || (mouse && naAlca(p, mouse.x, mouse.y));
+    ctx.strokeStyle = 'rgba(250,204,21,.6)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(ax, ay); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = ativa ? '#facc15' : '#1e293b'; ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ax, ay, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // ícone: arco com ponta de seta
+    const cor = ativa ? '#0f172a' : '#facc15';
+    ctx.strokeStyle = cor; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(ax, ay, 4.5, -Math.PI * 0.9, Math.PI * 0.55); ctx.stroke();
+    const px = ax + Math.cos(Math.PI * 0.55) * 4.5, py = ay + Math.sin(Math.PI * 0.55) * 4.5;
+    ctx.fillStyle = cor; ctx.beginPath(); ctx.moveTo(px - 3.5, py - 0.5); ctx.lineTo(px + 1, py + 3.5); ctx.lineTo(px + 1.5, py - 2.5); ctx.closePath(); ctx.fill();
+    if (girandoAlca === p) {
+      ctx.fillStyle = '#facc15'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(`${normalizar(p.ang || 0)}°`, ax, ay - 14); ctx.textAlign = 'start';
+    }
+  }
+  function desenharIconeEspelho(p) {
+    const [ax, ay] = pontoEspelho(p), ativo = mouse && noEspelho(p, mouse.x, mouse.y);
+    ctx.fillStyle = ativo || p.espelho ? '#facc15' : '#1e293b'; ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ax, ay, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const cor = ativo || p.espelho ? '#0f172a' : '#facc15';   // duas setas opostas ⇋
+    ctx.strokeStyle = cor; ctx.fillStyle = cor; ctx.lineWidth = 1.5;
+    for (const [dy, s] of [[-2.2, 1], [2.2, -1]]) {
+      ctx.beginPath(); ctx.moveTo(ax - 4.5 * s, ay + dy); ctx.lineTo(ax + 4.5 * s, ay + dy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax + 5 * s, ay + dy); ctx.lineTo(ax + 2 * s, ay + dy - 2.2); ctx.lineTo(ax + 2 * s, ay + dy + 2.2); ctx.closePath(); ctx.fill();
+    }
+  }
+  function caixaSelecao(p) {
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1;
+    if (p.tipo === 'rampa') { const [[x1, y1, x2, y2]] = F.segmentosDe(p); ctx.strokeRect(Math.min(x1, x2) - 8, Math.min(y1, y2) - 8, Math.abs(x2 - x1) + 16, Math.abs(y2 - y1) + 16); }
+    else if (p.tipo === 'trampolim') ctx.strokeRect(p.x - 42, p.y - 8, 84, 18);
+    else if (p.tipo === 'esteira') { const w = p.w || F.ESTEIRA.w, h = p.h || F.ESTEIRA.h; ctx.strokeRect(p.x - w / 2 - 10, p.y - h / 2 - 8, w + 20, h + 16); }
+    else if (p.tipo === 'rato') ctx.strokeRect(p.x - GW / 2 - 4, p.y - GH / 2 - 4, GW + 8, GH + 8);
+    else if (p.tipo === 'fole') ctx.strokeRect(p.x - F.FOLE.w / 2 - 10, p.y - F.FOLE.h / 2 - 8, F.FOLE.w + 20, F.FOLE.h + 16);
+    else if (p.tipo === 'tesoura') ctx.strokeRect(p.x - F.TESOURA.w / 2 - 4, p.y - F.TESOURA.h / 2 - 4, F.TESOURA.w + 8, F.TESOURA.h + 8);
+    else if (ehBola(p)) { const r = F.BOLAS[p.tipo].r + 5; ctx.strokeRect(p.x - r, p.y - r, 2 * r, 2 * r); }
+    else if (p.tipo === 'ventilador') ctx.strokeRect(p.x - 19, p.y - 28, 38, 47);
+    ctx.setLineDash([]);
+  }
+
+  function desenhar(t) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#12203f'); g.addColorStop(1, '#0b1224');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (!rodando) {   // grade de montagem
+      ctx.strokeStyle = 'rgba(148,163,184,.06)'; ctx.lineWidth = 1;
+      for (let x = 0; x < W; x += 20) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y < H; y += 20) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    }
+    ctx.fillStyle = '#3f2a1a'; ctx.fillRect(0, H - 8, W, 8);   // chão
+
+    const lista = todas();
+    const ratoAtivo = p => !!mundo && mundo.ratosAtivos.has(p.id);
+    const girando = p => !!mundo && mundo.ligadas.has(p.id);
+    const editando = !rodando;
+    const foles = lista.filter(p => p.tipo === 'fole');   // mesma ordem de mundo.foles
+    const soprando = p => !!mundo && mundo.foles[foles.indexOf(p)]?.sopro > 0;
+
+    if (desafio.objetivo.tipo === 'zona') desenharEstrela(desafio.objetivo, t);
+    for (const p of lista) {
+      const sel = editando && p === selecionada;
+      if (ehBola(p)) { if (sel) caixaSelecao(p); continue; }   // bolas colocadas: desenhadas junto com as outras bolas
+      // desenha no referencial da peça: girada (ang) e/ou espelhada (gaiola do rato)
+      const giro = p.tipo !== 'rampa' && p.ang ? p.ang * Math.PI / 180 : 0, transforma = giro || p.espelho;
+      if (transforma) {
+        ctx.save(); ctx.translate(p.x, p.y);
+        if (giro) ctx.rotate(giro);
+        if (p.espelho) ctx.scale(-1, 1);
+        ctx.translate(-p.x, -p.y);
+      }
+      if (p.tipo === 'bloco') desenharBloco(p);
+      else if (p.tipo === 'cesto') desenharCesto(p);
+      else if (p.tipo === 'cano') desenharCano(p);
+      else if (p.tipo === 'rampa') desenharRampa(p, sel);
+      else if (p.tipo === 'trampolim') desenharTrampolim(p);
+      else if (p.tipo === 'ventilador') desenharVentilador(p, t);
+      else if (p.tipo === 'esteira') desenharEsteira(p, t, sel || (editando && p === correiaInicio), girando(p));
+      else if (p.tipo === 'rato') desenharRato(p, t, ratoAtivo(p), editando && p === correiaInicio);
+      else if (p.tipo === 'engrenagem') desenharEngrenagemGrande(p, t, girando(p));
+      else if (p.tipo === 'fole') desenharFole(p, soprando(p), sel);
+      else if (p.tipo === 'tesoura') desenharTesoura(p, sel);
+      if (sel) caixaSelecao(p);
+      if (transforma) ctx.restore();
+    }
+
+    // vento: partículas saindo dos ventiladores ligados e dos foles soprando, na direção em que apontam
+    if (rodando) {
+      const soltar = (p, meio, altura, alcance) => {
+        const d = p.dir || 1, a = (p.ang || 0) * Math.PI / 180, v = 3 + Math.random() * 2;
+        const [x, y] = F.girarPt(p, d * (meio + 2), (Math.random() - 0.5) * altura);
+        particulas.push({ x, y, vx: d * Math.cos(a) * v, vy: d * Math.sin(a) * v, vida: alcance / 4 });
+      };
+      if (!camLenta || acumulado === 0) {   // na câmera lenta solta menos, senão o vento vira uma nuvem
+        for (const p of pecas) if (p.tipo === 'ventilador' && p.ligado && Math.random() < 0.6) soltar(p, 15, F.ALTURA_VENTO, F.ALCANCE_VENTO);
+        for (const p of foles) if (soprando(p) && Math.random() < 0.8) soltar(p, F.FOLE.w / 2, F.ALTURA_FOLE * 0.6, F.ALCANCE_FOLE);
+      }
+      const passoP = camLenta ? 1 / LENTA : 1;
+      ctx.strokeStyle = 'rgba(186,230,253,.35)'; ctx.lineWidth = 1;
+      for (const q of particulas) {
+        q.x += q.vx * passoP; q.y += q.vy * passoP; q.vida -= passoP;
+        ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - q.vx * 2, q.y - q.vy * 2); ctx.stroke();
+      }
+      particulas = particulas.filter(q => q.vida > 0);
+    }
+
+    // bolas: paradas na posição inicial (do desafio + as colocadas), ou as da simulação
+    for (const b of (mundo ? mundo.bolas : F.bolasDoNivel(desafio, pecas))) if (!b.estourou) desenharBola(b);
+    estouros = estouros.filter(e => t - e.t < 330);
+    for (const e of estouros) desenharEstouro(e.x, e.y, (t - e.t) / 16.5);
+
+    // correias por cima de tudo, como no jogo original
+    for (const c of lista) {
+      if (c.tipo !== 'correia') continue;
+      const pc = F.pontasCorreia(c, lista);
+      if (!pc) continue;
+      const rato = pc.a.tipo === 'rato' ? pc.a : pc.b;
+      desenharCorreia(pc.ga, pc.gb, t, ratoAtivo(rato), pc.comprimento > F.CORREIA_MAX, editando && c === selecionada);
+    }
+
+    // alça ⟳ da peça selecionada
+    if (editando && !pecasDaVitoria && girável(selecionada)) desenharAlca(selecionada);
+    if (editando && !pecasDaVitoria && espelhável(selecionada)) desenharIconeEspelho(selecionada);
+
+    // fantasma da peça sendo colocada / da correia sendo esticada
+    if (modo && mouse && editando) {
+      if (modo === 'correia') {
+        if (correiaInicio) {
+          const ga = F.engrenagem(correiaInicio), longe = Math.hypot(mouse.x - ga[0], mouse.y - ga[1]) > F.CORREIA_MAX;
+          ctx.globalAlpha = 0.6; desenharCorreia(ga, [mouse.x, mouse.y], t, false, longe, false); ctx.globalAlpha = 1;
+        }
+      } else if (modo !== 'bateria') {
+        const f = novaPeca(modo, snap(mouse.x), snap(mouse.y));
+        ctx.globalAlpha = 0.45;
+        if (f.tipo === 'rampa') desenharRampa(f);
+        else if (f.tipo === 'trampolim') desenharTrampolim(f);
+        else if (f.tipo === 'esteira') desenharEsteira(f, t, false, false);
+        else if (f.tipo === 'rato') desenharRato(f, t, false, false);
+        else if (f.tipo === 'fole') desenharFole(f, false, false);
+        else if (f.tipo === 'tesoura') desenharTesoura(f, false);
+        else if (ehBola(f)) desenharBola({ ...F.BOLAS[f.tipo], ...f });
+        else desenharVentilador(f, t);
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (venceuEste) {
+      ctx.fillStyle = 'rgba(13,18,36,.7)'; ctx.fillRect(0, H / 2 - 30, W, 60);
+      ctx.fillStyle = '#22c55e'; ctx.font = 'bold 26px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Funcionou!', W / 2, H / 2 + 9); ctx.textAlign = 'start';
+    }
+  }
+
+  let ultVy = 0, ratosCorrendo = 0, estouros = [];
+  function laco(t) {
+    // câmera lenta: a física só anda 1 passo a cada LENTA quadros (o desenho continua a 60 fps)
+    acumulado = rodando ? acumulado + (camLenta ? 1 / LENTA : 1) : 0;
+    if (rodando && mundo && acumulado >= 1) {
+      acumulado -= 1;
+      F.passo(mundo);
+      if (ultVy > 1.5 && mundo.bola.vy < 0) som.quique();
+      ultVy = mundo.bola.vy;
+      if (mundo.ratosAtivos.size > ratosCorrendo) { ratosCorrendo = mundo.ratosAtivos.size; som.ligar(); }
+      for (const b of mundo.bolas) if (b.estourou && !b.visto) { b.visto = true; estouros.push({ x: b.x, y: b.y, t }); som.estouro(); }
+      if (mundo.resolvido) aoResolver();
+      else if (mundo.esgotou) { parar(); som.falhou(); avisar('Não deu desta vez. Ajuste as peças e tente de novo.', 'erro'); }
+    }
+    desenhar(t);
+    requestAnimationFrame(laco);
+  }
+
+  if (!embutido) {
+    avisar(paramsTeste.has('nivel')
+      ? `Modo teste: desafio ${NIVEL_INICIAL}/${DESAFIOS.length}. Pontuação não conta — abra pelo jogoDaVida pra valer.`
+      : 'Abra este jogo pelo jogoDaVida para valer a pena. (Dica: ?nivel=N na URL pula direto pro desafio N.)', 'info');
+  }
+  carregarDesafio();
+  if (embutido) window.parent.postMessage({ tipo: 'pedir_config' }, location.origin);
+  requestAnimationFrame(laco);
+})();
+</script>
+</body></html>

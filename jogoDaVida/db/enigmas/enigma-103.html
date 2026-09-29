@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="pt-BR" data-answer="200" data-nivel="Jogo" data-titulo="Cobrinha">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cobrinha — jogoDaVida</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1}
+  .hud b{color:#e2e8f0}
+  canvas{background:#0d1224;border:1px solid #1e2a45;border-radius:10px;touch-action:none}
+  .aviso{min-height:22px;font-size:14px;font-weight:600}
+  .aviso.ok{color:#22c55e}
+  .aviso.erro{color:#ef4444}
+  .aviso.info{color:#94a3b8}
+  button{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer}
+  button:disabled{background:#334155;cursor:default;opacity:.6}
+  button.secundario{background:#334155}
+  .botoes{display:flex;gap:8px}
+  .ajuda{font-size:12px;color:#64748b;max-width:440px;text-align:center}
+</style>
+</head>
+<body>
+<div class="tela">
+  <h1>Cobrinha</h1>
+  <div class="hud">Fase: <b id="nivel">1/1</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Meta: <b id="meta">200</b></div>
+  <canvas id="c" width="400" height="320"></canvas>
+  <div class="aviso info" id="aviso">Setas para mover. Não bata na parede nem em você mesma.</div>
+  <div class="botoes">
+    <button id="btnEnviar" disabled>Enviar pontuação</button>
+    <button id="btnReiniciar" class="secundario">Reiniciar</button>
+  </div>
+  <p class="ajuda">Cada fruta vale 10 pontos e faz a cobra crescer. Ao bater, ou quando quiser,
+  envie a pontuação — o jogo confirma se deu para resolver o enigma.</p>
+</div>
+<script src="fim-jogo.js"></script>
+<script>
+(function () {
+  const embutido = window.parent && window.parent !== window;
+  const META = Number(document.documentElement.getAttribute('data-answer')) || 200;
+  document.getElementById('meta').textContent = META;
+
+  const CELL = 20, COLS = 20, ROWS = 16;
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+
+  // A física acima usa a grade COLS×ROWS fixa (= cv.width/height); só o
+  // TAMANHO NA TELA estica pra aproveitar o espaço disponível (tela cheia). A
+  // folga vertical é medida de verdade (título, HUD, botões, texto de ajuda)
+  // em vez de um número fixo — senão, em tela cheia, o canvas cresce demais
+  // e empurra os botões pra fora da área visível (só "voltam" ao apertar Esc).
+  function ajustarTamanho() {
+    const tela = document.querySelector('.tela');
+    const folga = [...tela.children].filter(el => el !== cv)
+        .reduce((soma, el) => soma + el.offsetHeight, 0)
+      + tela.children.length * 8 + 28 + 16;   // gaps + padding + margem
+    const escala = Math.min((window.innerWidth - 24) / cv.width, (window.innerHeight - folga) / cv.height);
+    cv.style.width = Math.round(cv.width * Math.max(escala, 0.3)) + 'px';
+    cv.style.height = Math.round(cv.height * Math.max(escala, 0.3)) + 'px';
+  }
+  window.addEventListener('resize', ajustarTamanho);
+  ajustarTamanho();
+
+  const $pontos = document.getElementById('pontos'), $aviso = document.getElementById('aviso');
+  const $btnEnviar = document.getElementById('btnEnviar'), $btnReiniciar = document.getElementById('btnReiniciar');
+
+  // ── som (WebAudio sintetizado, sem arquivo) ──
+  let actx = null;
+  function iniciarAudio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (err) {}
+  }
+  function bip(freq, dur, atraso, tipo) {
+    iniciarAudio();
+    if (!actx) return;
+    try {
+      const t = actx.currentTime + (atraso || 0);
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = tipo || 'square'; o.frequency.value = freq;
+      o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (err) {}
+  }
+  function somFruta() { bip(700, 0.05); bip(950, 0.06, 0.05); }
+  function somBateu() { bip(260, 0.16, 0, 'sawtooth'); bip(140, 0.26, 0.14, 'sawtooth'); }
+  function somVitoria() { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.2, 0.27); }
+  document.addEventListener('pointerdown', iniciarAudio, true);
+  document.addEventListener('keydown', iniciarAudio, true);
+
+  let cobra, dir, proxDir, fruta, pontos, intervalo, acumulador, fimDeJogo, resolvido, ultimoTs;
+  let nivel, comidasNivel, obstaculos, pausaAte = 0;
+  // valores reais vêm do servidor (parâmetro + níveis do enigma); padrão até a resposta chegar
+  let ganhoFruta = 5, niveis = 1;
+  // Até o penúltimo nível, cada um pede FRUTAS_NIVEL frutas; o último é livre
+  // (com niveis = 1, o jogo é o de sempre).
+  const FRUTAS_NIVEL = 8;
+  const $nivel = document.getElementById('nivel');
+  const textoControles = () =>
+    `Setas para mover. Não bata na parede, nos blocos nem em você mesma. Cada fruta dá +${ganhoFruta}% de energia.`;
+
+  function novoJogo() {
+    FimJogo.esconder();
+    pontos = 0; nivel = 1; fimDeJogo = false; resolvido = false;
+    iniciarNivel();
+    avisar(textoControles(), 'info');
+    $btnEnviar.disabled = true;
+    atualizarHud();
+  }
+
+  // Cada nível: cobra do tamanho inicial, mais rápida e com mais obstáculos.
+  function iniciarNivel() {
+    cobra = [{ r: 8, c: 8 }, { r: 8, c: 7 }, { r: 8, c: 6 }];
+    dir = { r: 0, c: 1 }; proxDir = dir;
+    intervalo = Math.max(80, 150 - 15 * (nivel - 1));
+    acumulador = 0; ultimoTs = null; comidasNivel = 0;
+    obstaculos = [];
+    const qtd = 4 * (nivel - 1);
+    for (let i = 0; i < qtd; i++) {
+      let r, c, tentativas = 0;
+      do { r = Math.floor(Math.random() * ROWS); c = Math.floor(Math.random() * COLS); tentativas++; }
+      // longe da linha de partida (r=8) e sem repetir
+      while (tentativas < 100 && (Math.abs(r - 8) < 2 || obstaculos.some(o => o.r === r && o.c === c)));
+      obstaculos.push({ r, c });
+    }
+    novaFruta();
+    pausaAte = performance.now() + 1000;
+  }
+
+  const ocupado = (r, c) => cobra.some(s => s.r === r && s.c === c) || obstaculos.some(o => o.r === r && o.c === c);
+  function novaFruta() {
+    let r, c;
+    do { r = Math.floor(Math.random() * ROWS); c = Math.floor(Math.random() * COLS); }
+    while (ocupado(r, c));
+    fruta = { r, c };
+  }
+
+  function atualizarHud() { $pontos.textContent = pontos; $nivel.textContent = nivel + '/' + niveis; }
+  function avisar(t, tipo) { $aviso.className = 'aviso ' + (tipo || 'info'); $aviso.textContent = t; }
+
+  function terminar(venceu) {
+    if (fimDeJogo) return;
+    fimDeJogo = true;
+    if (venceu) { avisar('Cobra enorme! Pontuação final: ' + pontos + '.', 'ok'); somVitoria(); }
+    else { avisar('Bateu! Pontuação final: ' + pontos + '.', 'info'); somBateu(); }
+    FimJogo.mostrar({
+      venceu: venceu, pontos, meta: META, embutido,
+      titulo: venceu ? 'Cobrinha completada!' : 'Bateu!',
+      detalhe: venceu ? 'A cobra encheu o mapa.' : `A cobrinha bateu na fase ${nivel}.`,
+      aoEnviar: enviarTentativa, aoRepetir: novoJogo,
+    });
+  }
+
+  function enviarTentativa() {
+    if (resolvido) return;
+    if (!embutido) { avisar('Abra este jogo pelo jogoDaVida para valer.', 'erro'); return; }
+    window.parent.postMessage({ tipo: 'tentativa', valor: String(pontos) }, location.origin);
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'config') {
+      if (Number.isFinite(d.valores?.fruta)) ganhoFruta = d.valores.fruta;
+      if (Number.isFinite(d.valores?.niveis) && d.valores.niveis >= 1) niveis = Math.floor(d.valores.niveis);
+      atualizarHud();
+      if (!fimDeJogo && pontos === 0) avisar(textoControles(), 'info');
+      return;
+    }
+    if (d.pedido === 'fruta' && !fimDeJogo) {
+      if (d.tipo === 'gasto_ok') avisar('Fruta! +' + d.valor + '% de energia.', 'ok');
+      else if (d.motivo === 'teto') avisar('Fruta! (esta porta já deu toda a energia que podia)', 'info');
+      return;
+    }
+    if (d.tipo !== 'resultado') return;
+    FimJogo.resultado(!!d.correto);
+    if (d.correto) {
+      resolvido = true;
+      avisar('✓ Resolvido! Pontuação ' + pontos + ' (meta ' + META + ').', 'ok');
+      $btnEnviar.disabled = true;
+    } else {
+      avisar('Ainda não chegou na meta (' + META + '). Continue jogando ou reinicie.', 'erro');
+      $btnEnviar.disabled = pontos <= 0;
+    }
+  });
+
+  window.addEventListener('keydown', function (e) {
+    const teclas = {
+      ArrowLeft: { r: 0, c: -1 }, ArrowRight: { r: 0, c: 1 },
+      ArrowUp: { r: -1, c: 0 }, ArrowDown: { r: 1, c: 0 },
+    };
+    const nova = teclas[e.key];
+    if (!nova) return;
+    e.preventDefault();
+    if (nova.r === -dir.r && nova.c === -dir.c) return;   // não inverte 180°
+    proxDir = nova;
+  });
+  $btnEnviar.addEventListener('click', enviarTentativa);
+  $btnReiniciar.addEventListener('click', novoJogo);
+
+  function tick() {
+    dir = proxDir;
+    const cabeca = { r: cobra[0].r + dir.r, c: cobra[0].c + dir.c };
+    if (cabeca.r < 0 || cabeca.r >= ROWS || cabeca.c < 0 || cabeca.c >= COLS ||
+        ocupado(cabeca.r, cabeca.c)) {
+      terminar(false);
+      return;
+    }
+    cobra.unshift(cabeca);
+    if (cabeca.r === fruta.r && cabeca.c === fruta.c) {
+      pontos += 10; atualizarHud(); somFruta();
+      // energia é do servidor: o jogo só pede; ele decide (e tem teto por porta)
+      if (embutido) window.parent.postMessage({ tipo: 'pedir_gasto', motivo: 'fruta' }, location.origin);
+      $btnEnviar.disabled = pontos <= 0;
+      intervalo = Math.max(75, intervalo - 3);
+      if (cobra.length >= ROWS * COLS - obstaculos.length - 1) { terminar(true); return; }
+      comidasNivel++;
+      if (nivel < niveis && comidasNivel >= FRUTAS_NIVEL) {
+        pontos += 50; nivel++; atualizarHud(); somVitoria();
+        avisar(`Fase ${nivel - 1} completa! +50. Fase ${nivel}: mais rápida e com obstáculos.`, 'ok');
+        iniciarNivel();
+        return;
+      }
+      novaFruta();
+    } else {
+      cobra.pop();
+    }
+  }
+
+  function passo(ts) {
+    if (!fimDeJogo) {
+      if (ultimoTs == null || ts < pausaAte) ultimoTs = ts;
+      acumulador += ts - ultimoTs; ultimoTs = ts;
+      while (acumulador >= intervalo) { acumulador -= intervalo; tick(); if (fimDeJogo) break; }
+    }
+
+    ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL);
+    ctx.fillStyle = '#475569';
+    for (const o of obstaculos) ctx.fillRect(o.c * CELL + 1, o.r * CELL + 1, CELL - 2, CELL - 2);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(fruta.c * CELL + 3, fruta.r * CELL + 3, CELL - 6, CELL - 6);
+    cobra.forEach((s, i) => {
+      ctx.fillStyle = i === 0 ? '#4ade80' : '#22c55e';
+      ctx.fillRect(s.c * CELL + 1, s.r * CELL + 1, CELL - 2, CELL - 2);
+    });
+    if (niveis > 1 && nivel < niveis) {
+      ctx.fillStyle = 'rgba(226,232,240,.55)'; ctx.font = '12px system-ui';
+      ctx.fillText(`frutas ${comidasNivel}/${FRUTAS_NIVEL}`, 6, 14);
+    }
+    if (performance.now() < pausaAte && !fimDeJogo) {
+      ctx.fillStyle = 'rgba(13,18,36,.7)'; ctx.fillRect(0, ROWS * CELL / 2 - 26, COLS * CELL, 52);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 24px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(`Fase ${nivel}`, COLS * CELL / 2, ROWS * CELL / 2 + 8); ctx.textAlign = 'start';
+    }
+
+    requestAnimationFrame(passo);
+  }
+
+  if (!embutido) avisar('Abra este jogo pelo jogoDaVida para valer a pena.', 'erro');
+  novoJogo();
+  if (embutido) window.parent.postMessage({ tipo: 'pedir_config' }, location.origin);
+  requestAnimationFrame(passo);
+})();
+</script>
+</body></html>

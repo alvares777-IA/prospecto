@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="pt-BR" data-answer="250" data-nivel="Jogo" data-titulo="Invasores">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invasores — jogoDaVida</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1;flex-wrap:wrap;justify-content:center}
+  .hud b{color:#e2e8f0}
+  .efeitos{min-height:18px;font-size:12px;color:#facc15;display:flex;gap:12px}
+  canvas{background:#0d1224;border:1px solid #1e2a45;border-radius:10px;touch-action:none}
+  .aviso{min-height:22px;font-size:14px;font-weight:600;text-align:center;max-width:520px}
+  .aviso.ok{color:#22c55e}
+  .aviso.erro{color:#ef4444}
+  .aviso.info{color:#94a3b8}
+  button{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer}
+  button:disabled{background:#334155;cursor:default;opacity:.6}
+  button.secundario{background:#334155}
+  .botoes{display:flex;gap:8px}
+  .ajuda{font-size:12px;color:#64748b;max-width:480px;text-align:center;margin:0}
+</style>
+</head>
+<body>
+<div class="tela">
+  <h1>Invasores</h1>
+  <div class="hud">Onda: <b id="nivel">1/1</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Vidas: <b id="vidas">3</b> &nbsp;·&nbsp; Meta: <b id="meta">250</b></div>
+  <div class="efeitos" id="efeitos"></div>
+  <canvas id="c" width="440" height="420"></canvas>
+  <div class="aviso info" id="aviso">← → ↑ ↓ para mover, Espaço para atirar.</div>
+  <div class="botoes">
+    <button id="btnEnviar" disabled>Enviar pontuação</button>
+    <button id="btnReiniciar" class="secundario">Reiniciar</button>
+  </div>
+  <p class="ajuda">Especiais: 💣 invasor-bomba (solta bombas pesadas; 3 tiros o derrubam e a explosão leva os vizinhos) ·
+  ×5 tiro em leque · 2× pontos em dobro · ⚡ tiro rápido · ♥ vida extra · blindados pedem 2 tiros ·
+  na onda 2, a nave-mãe cruza o topo (5 tiros, 150 pontos). Shift = escudo (gasta energia).</p>
+</div>
+<script src="fim-jogo.js"></script>
+<script>
+(function () {
+  const embutido = window.parent && window.parent !== window;
+  const META = Number(document.documentElement.getAttribute('data-answer')) || 250;
+  document.getElementById('meta').textContent = META;
+
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+
+  // A física usa W/H fixos (resolução lógica do canvas); só o TAMANHO NA TELA
+  // estica pra aproveitar o espaço (tela cheia). A folga vertical é medida de
+  // verdade — senão o canvas empurra os botões pra fora da área visível.
+  function ajustarTamanho() {
+    const tela = document.querySelector('.tela');
+    const folga = [...tela.children].filter(el => el !== cv)
+        .reduce((soma, el) => soma + el.offsetHeight, 0)
+      + tela.children.length * 8 + 28 + 16;
+    const escala = Math.min((window.innerWidth - 24) / W, (window.innerHeight - folga) / H);
+    cv.style.width = Math.round(W * Math.max(escala, 0.3)) + 'px';
+    cv.style.height = Math.round(H * Math.max(escala, 0.3)) + 'px';
+  }
+  window.addEventListener('resize', ajustarTamanho);
+  ajustarTamanho();
+
+  const $ = id => document.getElementById(id);
+  const $pontos = $('pontos'), $vidas = $('vidas'), $nivel = $('nivel'), $efeitos = $('efeitos'), $aviso = $('aviso');
+  const $btnEnviar = $('btnEnviar'), $btnReiniciar = $('btnReiniciar');
+
+  // Valores do servidor (níveis do enigma + custo do escudo). Padrão até a resposta.
+  const cfg = { niveis: 1, escudo: 5 };
+  const textoControles = () =>
+    `← → ↑ ↓ movem. Espaço atira. Shift liga o escudo por 5s (−${cfg.escudo}% energia).`;
+
+  const COLS_AL = 8, ALW = 32, ALH = 20, GAP = 10;
+  const LEQUE_MS = 12000, DOBRO_MS = 30000, RAPIDO_MS = 15000, ESCUDO_MS = 5000;
+  const VIDA_BOMBA = 3, VIDA_MAE = 5, BASE_Y = H - 26;
+
+  let jogador, tiros, invasores, tirosInvasores, pontos, vidas, dir, velBase, offX, offY, cronTiro, cadenciaTiro;
+  let fimDeJogo, resolvido, nivel, pausaAte, particulas, nave;
+  let lequeAte, dobroAte, rapidoAte, escudoAte, aguardandoEscudo = false;
+
+  // ── som (WebAudio sintetizado) ──
+  let actx = null;
+  function iniciarAudio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (err) {}
+  }
+  function bip(freq, dur, atraso, tipo, vol) {
+    iniciarAudio();
+    if (!actx) return;
+    try {
+      const t = actx.currentTime + (atraso || 0);
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = tipo || 'square'; o.frequency.value = freq;
+      o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol || 0.2, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (err) {}
+  }
+  const som = {
+    tiro: () => bip(880, 0.04, 0, 'triangle'),
+    explosao: () => bip(180, 0.09, 0, 'sawtooth'),
+    blindado: () => { bip(1400, 0.05, 0, 'triangle'); bip(2100, 0.08, 0.01, 'sine'); },
+    bomba: () => { bip(90, 0.35, 0, 'sawtooth'); bip(60, 0.4, 0.05, 'sawtooth'); bip(140, 0.2, 0.02, 'square'); },
+    poder: () => { bip(660, 0.06); bip(880, 0.06, 0.06); bip(1320, 0.1, 0.12); },
+    escudo: () => { bip(300, 0.2, 0, 'sine', 0.15); bip(600, 0.25, 0.05, 'sine', 0.12); },
+    mae: () => bip(140 + Math.random() * 40, 0.08, 0, 'sine', 0.05),
+    vida: () => { bip(220, 0.16, 0, 'sawtooth'); bip(130, 0.24, 0.14, 'sawtooth'); },
+    vitoria: () => { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.2, 0.27); },
+    fim: () => { bip(320, 0.14); bip(220, 0.24, 0.12); },
+  };
+  document.addEventListener('pointerdown', iniciarAudio, true);
+  document.addEventListener('keydown', iniciarAudio, true);
+
+  // ── ondas ──
+  const CORES_ONDA = ['#22c55e', '#a3e635', '#facc15', '#f97316', '#ef4444'];
+  function montarOnda(n) {
+    const linhas = Math.min(5 + (n - 1), 7);
+    const lista = [];
+    for (let r = 0; r < linhas; r++) for (let c = 0; c < COLS_AL; c++) lista.push({ r, c, vivo: true, tipo: 'normal', vida: 1 });
+    const livres = lista.filter(a => a.r > 0);   // a fileira de trás é a última a descer; especiais no meio
+    const sortear = () => livres.splice(Math.floor(Math.random() * livres.length), 1)[0];
+    const marcar = (tipo, extra) => { const a = sortear(); if (a) Object.assign(a, { tipo }, extra); };
+    marcar('bomba', { vida: VIDA_BOMBA });
+    marcar('leque'); marcar('dobro'); marcar('rapido');
+    if (Math.random() < 0.35) marcar('vida');
+    const blindados = n === 1 ? 0 : Math.min(4 * (n - 1), 12);
+    for (let i = 0; i < blindados; i++) marcar('blindado', { vida: 2 });
+    return lista;
+  }
+
+  function novoJogo() {
+    FimJogo.esconder();
+    pontos = 0; vidas = 3; nivel = 1; fimDeJogo = false; resolvido = false; aguardandoEscudo = false;
+    iniciarNivel();
+    avisar(textoControles(), 'info');
+    $btnEnviar.disabled = true;
+    atualizarHud();
+  }
+
+  function iniciarNivel() {
+    jogador = { w: 34, h: 14, x: (W - 34) / 2, y: BASE_Y, vel: 5 };
+    tiros = []; tirosInvasores = []; particulas = [];
+    dir = 1; velBase = 0.6 + 0.2 * (nivel - 1); offX = 0; offY = 0; cronTiro = 0;
+    cadenciaTiro = Math.max(15, 35 - 5 * (nivel - 1));
+    invasores = montarOnda(nivel);
+    lequeAte = dobroAte = rapidoAte = escudoAte = 0;
+    // nave-mãe: a partir da onda 2, cruza o topo de tempos em tempos
+    nave = nivel >= 2 ? { ativa: false, proxima: performance.now() + 6000, x: 0, dir: 1, vida: VIDA_MAE } : null;
+    pausaAte = performance.now() + 1100;
+  }
+
+  function atualizarHud() { $pontos.textContent = pontos; $vidas.textContent = vidas; $nivel.textContent = nivel + '/' + cfg.niveis; }
+  function avisar(t, tipo) { $aviso.className = 'aviso ' + (tipo || 'info'); $aviso.textContent = t; }
+
+  function somar(base) {
+    const v = base * (performance.now() < dobroAte ? 2 : 1);
+    pontos += v; atualizarHud();
+    $btnEnviar.disabled = pontos <= 0;
+    return v;
+  }
+  function estourar(x, y, cor, n = 10) {
+    for (let i = 0; i < n; i++) particulas.push({ x, y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, cor, vida: 40 });
+  }
+
+  function posAlien(a) { return { x: 24 + a.c * (ALW + GAP) + offX, y: 30 + a.r * (ALH + GAP) + offY }; }
+  const vivos = () => invasores.filter(a => a.vivo);
+
+  // Um tiro acertou um invasor.
+  function acertar(a) {
+    const p = posAlien(a), cx = p.x + ALW / 2, cy = p.y + ALH / 2;
+    if (a.tipo === 'blindado' && a.vida > 1) { a.vida--; som.blindado(); estourar(cx, cy, '#cbd5e1', 4); return; }
+    if (a.tipo === 'bomba' && a.vida > 1) { a.vida--; som.blindado(); estourar(cx, cy, '#f97316', 4); return; }
+    a.vivo = false;
+    estourar(cx, cy, corDe(a));
+    const agora = performance.now();
+    if (a.tipo === 'bomba') { explodirBomba(a); return; }
+    somar(a.tipo === 'blindado' ? 20 : 10);
+    som.explosao();
+    if (a.tipo === 'leque') { lequeAte = agora + LEQUE_MS; som.poder(); avisar('×5 Tiro em leque!', 'ok'); }
+    else if (a.tipo === 'dobro') { dobroAte = agora + DOBRO_MS; som.poder(); avisar('Pontos em dobro por 30 segundos!', 'ok'); }
+    else if (a.tipo === 'rapido') { rapidoAte = agora + RAPIDO_MS; som.poder(); avisar('⚡ Tiro rápido!', 'ok'); }
+    else if (a.tipo === 'vida') { vidas++; atualizarHud(); som.poder(); avisar('+1 vida!', 'ok'); }
+  }
+
+  // Invasor-bomba derrubado: explode e leva os vizinhos (valem pontos).
+  function explodirBomba(a) {
+    som.bomba();
+    const p = posAlien(a);
+    estourar(p.x + ALW / 2, p.y + ALH / 2, '#f97316', 30); estourar(p.x + ALW / 2, p.y + ALH / 2, '#facc15', 20);
+    let levou = 30;   // o próprio
+    for (const o of invasores) {
+      if (!o.vivo || Math.abs(o.r - a.r) > 1 || Math.abs(o.c - a.c) > 1) continue;
+      o.vivo = false; const q = posAlien(o); estourar(q.x + ALW / 2, q.y + ALH / 2, corDe(o), 6);
+      levou += o.tipo === 'blindado' ? 20 : 10;
+    }
+    const v = somar(levou);
+    avisar(`💥 Invasor-bomba derrubado! Levou os vizinhos (+${v}).`, 'ok');
+  }
+
+  function perderVida() {
+    if (performance.now() < escudoAte) return;   // escudo segura
+    vidas--; atualizarHud(); som.vida();
+    jogador.y = BASE_Y;
+    tirosInvasores = [];
+    if (vidas <= 0) terminar(false);
+    else avisar('Foi atingido! Vidas restantes: ' + vidas + '.', 'erro');
+  }
+
+  function nivelCompleto() {
+    if (nivel >= cfg.niveis) { terminar(true); return; }
+    const bonus = somar(50);
+    nivel++; atualizarHud(); som.vitoria();
+    avisar(`Onda ${nivel - 1} repelida! +${bonus}. Onda ${nivel}: blindados e a nave-mãe.`, 'ok');
+    iniciarNivel();
+  }
+
+  function terminar(venceu) {
+    if (fimDeJogo) return;
+    fimDeJogo = true;
+    if (venceu) { avisar(`Invasão repelida em ${cfg.niveis} onda(s)! Pontuação final: ${pontos}.`, 'ok'); som.vitoria(); }
+    else { avisar('Fim de jogo. Pontuação final: ' + pontos + '.', 'info'); som.fim(); }
+    FimJogo.mostrar({
+      venceu: venceu, pontos, meta: META, embutido,
+      titulo: venceu ? 'Invasão repelida!' : 'Fim de jogo',
+      detalhe: venceu ? `Você repeliu as ${cfg.niveis} onda(s).` : `A invasão te pegou na onda ${nivel}.`,
+      aoEnviar: enviarTentativa, aoRepetir: novoJogo,
+    });
+  }
+
+  function enviarTentativa() {
+    if (resolvido) return;
+    if (!embutido) { avisar('Abra este jogo pelo jogoDaVida para valer.', 'erro'); return; }
+    window.parent.postMessage({ tipo: 'tentativa', valor: String(pontos) }, location.origin);
+  }
+
+  // ── tiro (grátis) ──
+  function atirar() {
+    if (fimDeJogo || performance.now() < pausaAte) return;
+    const agora = performance.now();
+    const limite = agora < rapidoAte ? 3 : 1;
+    if (tiros.filter(t => !t.leque).length >= limite && agora >= lequeAte) return;
+    if (agora < lequeAte && tiros.length) return;   // leque: uma rajada por vez
+    const x = jogador.x + jogador.w / 2;
+    if (agora < lequeAte) for (const vx of [-2.4, -1.2, 0, 1.2, 2.4]) tiros.push({ x, y: jogador.y, vx, leque: true });
+    else tiros.push({ x, y: jogador.y, vx: 0 });
+    som.tiro();
+  }
+
+  // ── escudo: quem cobra a energia é o servidor; só liga com o ok ──
+  function pedirEscudo() {
+    if (fimDeJogo || aguardandoEscudo || performance.now() < escudoAte) return;
+    if (!embutido) { ligarEscudo(); return; }
+    aguardandoEscudo = true;
+    window.parent.postMessage({ tipo: 'pedir_gasto', motivo: 'escudo' }, location.origin);
+  }
+  function ligarEscudo() { escudoAte = performance.now() + ESCUDO_MS; som.escudo(); avisar('Escudo ligado por 5 segundos.', 'ok'); }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'config') {
+      const v = d.valores || {};
+      if (Number.isFinite(v.niveis) && v.niveis >= 1) cfg.niveis = Math.floor(v.niveis);
+      if (Number.isFinite(v.escudo)) cfg.escudo = v.escudo;
+      atualizarHud();
+      if (!fimDeJogo && pontos === 0) avisar(textoControles(), 'info');
+      return;
+    }
+    if (d.pedido === 'escudo') {
+      aguardandoEscudo = false;
+      if (d.tipo === 'gasto_ok') ligarEscudo();
+      else if (d.motivo === 'sem_energia') avisar('Sem energia para o escudo.', 'erro');
+      return;
+    }
+    if (d.tipo !== 'resultado') return;
+    FimJogo.resultado(!!d.correto);
+    if (d.correto) {
+      resolvido = true;
+      avisar('✓ Resolvido! Pontuação ' + pontos + ' (meta ' + META + ').', 'ok');
+      $btnEnviar.disabled = true;
+    } else {
+      avisar('Ainda não chegou na meta (' + META + '). Continue jogando ou reinicie.', 'erro');
+      $btnEnviar.disabled = pontos <= 0;
+    }
+  });
+
+  // ── controles ──
+  const teclas = {};
+  window.addEventListener('keydown', function (e) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+    teclas[e.key] = true;
+    if (e.key === ' ') atirar();
+    if (e.key === 'Shift' && !e.repeat) pedirEscudo();
+  });
+  window.addEventListener('keyup', function (e) { teclas[e.key] = false; });
+  $btnEnviar.addEventListener('click', enviarTentativa);
+  $btnReiniciar.addEventListener('click', novoJogo);
+
+  // ── laço ──
+  function passoNave(agora) {
+    if (!nave) return;
+    if (!nave.ativa) {
+      if (agora >= nave.proxima) {
+        nave.ativa = true; nave.vida = VIDA_MAE;
+        nave.dir = Math.random() < 0.5 ? 1 : -1;
+        nave.x = nave.dir > 0 ? -50 : W + 50;
+      }
+      return;
+    }
+    nave.x += nave.dir * 1.6;
+    if (Math.floor(agora / 90) % 3 === 0) som.mae();
+    if (nave.x < -60 || nave.x > W + 60) { nave.ativa = false; nave.proxima = agora + 9000 + Math.random() * 5000; }
+  }
+
+  function passo() {
+    const agora = performance.now();
+    if (!fimDeJogo && agora >= pausaAte) {
+      if (teclas.ArrowLeft) jogador.x -= jogador.vel;
+      if (teclas.ArrowRight) jogador.x += jogador.vel;
+      jogador.x = Math.max(0, Math.min(W - jogador.w, jogador.x));
+      if (teclas.ArrowUp) jogador.y -= jogador.vel;
+      if (teclas.ArrowDown) jogador.y += jogador.vel;
+      jogador.y = Math.max(40, Math.min(BASE_Y, jogador.y));
+
+      // bloco anda de lado, desce ao bater na borda, acelera conforme cai
+      const vs = vivos();
+      const vel = velBase + (invasores.length - vs.length) * 0.05;
+      offX += dir * vel;
+      const xs = vs.map(a => posAlien(a).x);
+      if (xs.length && (Math.min(...xs) < 6 || Math.max(...xs) + ALW > W - 6)) { dir *= -1; offX += dir * vel * 2; offY += 14; }
+      // invasão = a formação chegou na LINHA DE BASE (a nave pode subir; não conta onde ela está)
+      if (vs.some(a => posAlien(a).y + ALH >= BASE_Y)) { terminar(false); return requestAnimationFrame(passo); }
+      if (vs.some(a => { const p = posAlien(a); return p.x < jogador.x + jogador.w && p.x + ALW > jogador.x && p.y < jogador.y + jogador.h && p.y + ALH > jogador.y; })) perderVida();
+
+      passoNave(agora);
+
+      // tiros do jogador
+      for (const t of tiros) {
+        t.y -= 8; t.x += t.vx;
+        if (nave?.ativa && t.y < 34 && t.y > 10 && Math.abs(t.x - nave.x) < 26) {
+          t.y = -99; nave.vida--; estourar(t.x, 22, '#e879f9', 5); som.blindado();
+          if (nave.vida <= 0) {
+            nave.ativa = false; nave.proxima = agora + 12000;
+            estourar(nave.x, 22, '#e879f9', 30); som.bomba();
+            avisar(`🛸 Nave-mãe derrubada! +${somar(150)}`, 'ok');
+          }
+          continue;
+        }
+        for (const a of invasores) {
+          if (!a.vivo) continue;
+          const p = posAlien(a);
+          if (t.x > p.x && t.x < p.x + ALW && t.y > p.y && t.y < p.y + ALH) { t.y = -99; acertar(a); break; }
+        }
+      }
+      tiros = tiros.filter(t => t.y > -10 && t.x > -10 && t.x < W + 10);
+
+      // tiros dos invasores (o invasor-bomba solta bomba pesada e rápida)
+      cronTiro++;
+      const vs2 = vivos();
+      if (cronTiro > cadenciaTiro && vs2.length) {
+        cronTiro = 0;
+        if (Math.random() < 0.5) {
+          const a = vs2[Math.floor(Math.random() * vs2.length)];
+          const p = posAlien(a);
+          tirosInvasores.push({ x: p.x + ALW / 2, y: p.y + ALH, pesada: a.tipo === 'bomba' });
+        }
+        const b = vs2.find(a => a.tipo === 'bomba');
+        if (b && Math.random() < 0.35) { const p = posAlien(b); tirosInvasores.push({ x: p.x + ALW / 2, y: p.y + ALH, pesada: true }); }
+      }
+      if (nave?.ativa && Math.random() < 0.015) tirosInvasores.push({ x: nave.x, y: 34, pesada: false });
+      for (const t of tirosInvasores) t.y += t.pesada ? 6 : 4;
+      tirosInvasores = tirosInvasores.filter(t => {
+        if (t.y > H) return false;
+        const larg = t.pesada ? 6 : 2;
+        if (t.x + larg > jogador.x && t.x - larg < jogador.x + jogador.w && t.y > jogador.y && t.y < jogador.y + jogador.h) {
+          if (agora < escudoAte) { estourar(t.x, t.y, '#38bdf8', 6); return false; }
+          perderVida();
+          return false;
+        }
+        return true;
+      });
+
+      if (!fimDeJogo && !vivos().length) nivelCompleto();
+    }
+    for (const p of particulas) { p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.vida--; }
+    particulas = particulas.filter(p => p.vida > 0);
+    desenhar(agora);
+    requestAnimationFrame(passo);
+  }
+
+  function corDe(a) {
+    if (a.tipo === 'bomba') return '#1f2937';
+    if (a.tipo === 'blindado') return '#94a3b8';
+    return CORES_ONDA[(nivel - 1) % CORES_ONDA.length];
+  }
+
+  function desenhar(agora) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const a of invasores) {
+      if (!a.vivo) continue;
+      const p = posAlien(a);
+      if (a.tipo === 'bomba') {
+        ctx.fillStyle = '#1f2937'; ctx.fillRect(p.x, p.y, ALW, ALH);
+        ctx.strokeStyle = Math.floor(agora / 250) % 2 ? '#ef4444' : '#f97316'; ctx.lineWidth = 2; ctx.strokeRect(p.x + 1, p.y + 1, ALW - 2, ALH - 2);
+        ctx.font = '11px system-ui'; ctx.fillStyle = '#fff'; ctx.fillText('💣' + (a.vida < VIDA_BOMBA ? a.vida : ''), p.x + ALW / 2, p.y + ALH / 2 + 1);
+        continue;
+      }
+      if (a.tipo === 'blindado') {
+        const g = ctx.createLinearGradient(p.x, p.y, p.x, p.y + ALH);
+        g.addColorStop(0, a.vida > 1 ? '#e2e8f0' : '#94a3b8'); g.addColorStop(1, '#475569');
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = corDe(a);
+      ctx.fillRect(p.x, p.y, ALW, ALH);
+      ctx.fillStyle = '#0d1224'; ctx.fillRect(p.x + 7, p.y + 6, 5, 5); ctx.fillRect(p.x + ALW - 12, p.y + 6, 5, 5);   // olhos
+      const rotulo = { leque: '×5', dobro: '2×', rapido: '⚡', vida: '♥' }[a.tipo];
+      if (rotulo) {
+        ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillRect(p.x + 3, p.y + 3, ALW - 6, ALH - 6);
+        ctx.fillStyle = a.tipo === 'vida' ? '#dc2626' : '#0f172a'; ctx.font = 'bold 11px system-ui';
+        ctx.fillText(rotulo, p.x + ALW / 2, p.y + ALH / 2 + 1);
+      }
+    }
+    if (nave?.ativa) {
+      ctx.fillStyle = '#c026d3'; ctx.beginPath(); ctx.ellipse(nave.x, 24, 24, 8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f0abfc'; ctx.beginPath(); ctx.ellipse(nave.x, 18, 10, 6, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '9px system-ui'; ctx.fillText('♦'.repeat(nave.vida), nave.x, 36);
+    }
+    // nave do jogador + escudo
+    const escudo = agora < escudoAte;
+    ctx.fillStyle = '#38bdf8'; ctx.fillRect(jogador.x, jogador.y, jogador.w, jogador.h);
+    ctx.fillRect(jogador.x + jogador.w / 2 - 3, jogador.y - 5, 6, 5);
+    if (escudo) {
+      ctx.strokeStyle = `rgba(56,189,248,${0.5 + 0.3 * Math.sin(agora / 80)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(jogador.x + jogador.w / 2, jogador.y + 4, jogador.w * 0.85, 18, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = agora < dobroAte ? '#f472b6' : '#facc15';
+    for (const t of tiros) ctx.fillRect(t.x - 2, t.y - 8, 4, 10);
+    for (const t of tirosInvasores) {
+      if (t.pesada) { ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.arc(t.x, t.y, 6, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.fillStyle = '#ef4444'; ctx.fillRect(t.x - 2, t.y - 8, 4, 10); }
+    }
+    for (const p of particulas) { ctx.globalAlpha = Math.max(0, p.vida / 40); ctx.fillStyle = p.cor; ctx.fillRect(p.x, p.y, 3, 3); }
+    ctx.globalAlpha = 1;
+    if (agora < pausaAte && !fimDeJogo) {
+      ctx.fillStyle = 'rgba(13,18,36,.75)'; ctx.fillRect(0, H / 2 - 28, W, 56);
+      ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 24px system-ui';
+      ctx.fillText(`Onda ${nivel}`, W / 2, H / 2);
+    }
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+
+    const ef = [];
+    if (agora < lequeAte) ef.push(`×5 leque ${Math.ceil((lequeAte - agora) / 1000)}s`);
+    if (agora < dobroAte) ef.push(`2× pontos ${Math.ceil((dobroAte - agora) / 1000)}s`);
+    if (agora < rapidoAte) ef.push(`⚡ rápido ${Math.ceil((rapidoAte - agora) / 1000)}s`);
+    if (escudo) ef.push(`🛡 escudo ${Math.ceil((escudoAte - agora) / 1000)}s`);
+    const txt = ef.join(' · ');
+    if ($efeitos.textContent !== txt) $efeitos.textContent = txt;
+  }
+
+  if (!embutido) avisar('Abra este jogo pelo jogoDaVida para valer a pena.', 'erro');
+  novoJogo();
+  if (embutido) window.parent.postMessage({ tipo: 'pedir_config' }, location.origin);
+  requestAnimationFrame(passo);
+})();
+</script>
+</body></html>

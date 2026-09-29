@@ -104,6 +104,32 @@ docker exec -i prospecto-ia-jogodavida-1 node --input-type=module - /tmp/enigmas
   < jogoDaVida/db/importar_enigmas.mjs
 ```
 
+Jogos-arcade (`enigma-101.html`+): `tipo='jogo'`, resposta = limiar numérico de
+pontuação (`data-answer` do `<html>`, ex.: 300). São importados à parte —
+`importar_enigmas.mjs` só olha até `enigma-100.html` — pra não colidirem com o
+catálogo de quiz:
+
+```bash
+MSYS_NO_PATHCONV=1 docker exec -i prospecto-ia-jogodavida-1 node --input-type=module - /tmp/enigmas \
+  < jogoDaVida/db/importar_jogos.mjs
+```
+
+> No Git Bash do Windows, o `MSYS_NO_PATHCONV=1` impede que `/tmp/enigmas` vire
+> um caminho do Windows. Se `/tmp/enigmas` já existir no container, o
+> `docker cp` cria `/tmp/enigmas/enigmas` — use um destino novo.
+
+O importador de jogos **só insere** o que ainda não existe: fase, ordem, meta,
+`niveis` e ativo, depois de importados, são do `/admin` (reimportar não desfaz).
+`enigma.niveis` = quantas fases o jogo tem por dentro (padrão 1).
+
+**TIM** (`enigma-105.html` + `tim-fisica.js` + `tim-niveis.js`): desafios de
+física estilo *The Incredible Machine*. Cada desafio é verificado por simulação —
+resolve com as peças da caixa e não resolve sem elas:
+
+```bash
+node jogoDaVida/db/enigmas/tim-teste.mjs     # ~1 min; não é publicado em public/
+```
+
 Sequência: intercala `texto` e `html` (ordem 1,2,3,4… = csv#1, html#1,
 csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
 
@@ -114,27 +140,39 @@ csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
 `regra_destino`, `limiar`). Login próprio: `ADMIN_USER` / `ADMIN_SENHA`
 no `.env`.
 
-### Modo em equipe (coop) e energia pessoal
+### Energia pessoal, fase co-op, doação, desistir
 
-Ao criar uma sala há duas opções: **sozinho** (cada jogador corre a
-sequência de portas por conta própria, com hall e ajuda) e **em equipe**
-(todos entram juntos, uma barra de energia só, enigmas divididos em fases;
-qualquer jogador resolve qualquer enigma da fase; resolvidos todos, cada um
-clica "Avançar" → hall da equipe → "Começar próxima fase"). A sala em
-equipe **tranca a entrada** depois de "Iniciar jogo".
+**Energia**: `garantirPartida` dá `energia_inicial` (100) quando ninguém ainda
+tem partida na sessão (início do jogo); quem entra com o jogo já rolando começa
+com `MIN(energia_atual)` entre os jogadores ativos (`dt_fim IS NULL`). Não
+carrega o `jogador.energia` de jogos anteriores. Dentro do jogo persiste
+(`partida_jogador.energia`), não regenera com o tempo, só volta com
+`bonus_enigma` ao resolver. `finalizarPartida` ainda grava `jogador.energia`
+(+ `bonus_vitoria`) mas isso não é lido no início — a persistência entre salas
+está desligada; `piso_energia` idem.
 
-A energia agora é **pessoal e persiste entre salas** (`jogador.energia`).
-Não regenera com o tempo — só volta como prêmio: `bonus_enigma` % ao
-resolver um enigma e `bonus_vitoria` % ao vencer a sala. Ao entrar numa
-partida a energia inicial é a pessoal (nunca abaixo de `piso_energia`); ao
-sair ela é gravada de volta. No coop, a saída devolve
-`energia_na_entrada × (energia_da_equipe_no_momento / 100)`. Anônimo não
-persiste — entra sempre com 100%. Parâmetros novos (globais, editáveis no
-`/admin`): `bonus_enigma`, `bonus_vitoria`, `piso_energia`, `qtd_fases`,
-`enigmas_por_fase`.
+**Fase co-op**: atributo do catálogo (`enigma.fase`, número — enigmas com a
+mesma fase = um trecho). Ao chegar nesse trecho da sua sequência, você vê um
+tabuleiro compartilhado; qualquer um resolve qualquer enigma (coletivo, via
+`sessao_enigma.resolvido_por`); completo, cada um clica "Prosseguir" e segue
+sozinho. Chat livre, sem penalidade de spoiler dentro da fase. Marque as
+fases no `/admin` (coluna `fase` em `enigma`). Posição na sequência = menor
+`enigma.ordem` do trecho.
 
-O `schema_pg.sql` é idempotente; reaplicar já adiciona as colunas/tabelas
-novas (`ALTER ... ADD COLUMN IF NOT EXISTS`, `partida_equipe`).
+**Doação** (`doar_energia` / `pedir_doacao`): transfere `doacao_energia` %
+(padrão 10) para outro jogador; vários podem doar; revive quem zerou.
+
+**Desistir** (`desistir`): paga `custo_desistir` % (padrão 20), o jogo revela
+a resposta (você ainda tem de enviá-la). Marca de caráter negativa se havia
+outro jogador à frente (`desistencia.orgulho`).
+
+**Game over da sala**: quando ninguém em pé sobra e nem todos concluíram
+(`sessao.estado = 'encerrada'`, evento `sala_derrota`).
+
+Parâmetros globais (editáveis no `/admin`): `bonus_enigma`, `bonus_vitoria`,
+`piso_energia`, `doacao_energia`, `custo_desistir`. O `schema_pg.sql` é
+idempotente; reaplicar adiciona `enigma.fase`, a tabela `desistencia` e
+remove o que sobrou do desenho antigo de "modo de sala".
 
 ---
 

@@ -248,7 +248,8 @@ CREATE INDEX IF NOT EXISTS ix_enigma_seq ON enigma (ativo, ordem, id);
 -- Parâmetros em 3 escopos. Resolução: enigma -> sala (sessao) -> global.
 -- Chaves: energia_inicial, decaimento_min, penalidade_erro, custo_ajudar,
 --         custo_pedir_ajuda, penalidade_chat, chat_aberto, qtd_enigmas,
---         bonus_enigma, bonus_vitoria, piso_energia, qtd_fases, enigmas_por_fase.
+--         bonus_enigma, bonus_vitoria, piso_energia, doacao_energia, custo_desistir.
+--         (`qtd_enigmas` = nº de portas SOLO; as fases co-op somam por cima.)
 CREATE TABLE IF NOT EXISTS parametro (
   id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   escopo    VARCHAR(10) NOT NULL CHECK (escopo IN ('global','sala','enigma')),
@@ -580,10 +581,8 @@ ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 
 
 -- =====================================================================
---  7. MODO EM EQUIPE (coop) + ENERGIA PESSOAL PERSISTENTE
---  Migração incremental e idempotente. As tabelas acima usam
---  CREATE TABLE IF NOT EXISTS e não ganham colunas ao reaplicar; por
---  isso os ALTER ... ADD COLUMN IF NOT EXISTS abaixo.
+--  7. ENERGIA PESSOAL + FASE CO-OP + DOAÇÃO + DESISTIR
+--  Migração incremental e idempotente.
 -- =====================================================================
 
 -- Energia pessoal: sobrevive entre salas. Não decai no tempo — só volta
@@ -591,48 +590,142 @@ ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 -- Anônimo não persiste (a linha é apagada ao sair); entra sempre com 100.
 ALTER TABLE jogador ADD COLUMN IF NOT EXISTS energia NUMERIC NOT NULL DEFAULT 100;
 
--- Modo da sala e fase atual da equipe.
-ALTER TABLE sessao ADD COLUMN IF NOT EXISTS modo       VARCHAR(12) NOT NULL DEFAULT 'individual';
-ALTER TABLE sessao ADD COLUMN IF NOT EXISTS fase_atual INT         NOT NULL DEFAULT 1;
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessao_modo_chk') THEN
-    ALTER TABLE sessao ADD CONSTRAINT sessao_modo_chk CHECK (modo IN ('individual','coop'));
-  END IF;
-END $$;
+-- FASE CO-OP é atributo do CATÁLOGO: enigmas com a mesma `fase` (número)
+-- formam um trecho resolvido coletivamente dentro da sequência individual.
+ALTER TABLE enigma ADD COLUMN IF NOT EXISTS fase INT;
 
--- Enigma da sala (coop): a que fase pertence e quem o resolveu.
+-- Slot da sequência da sala: `fase` (NULL = porta solo) e resolução coletiva.
 ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS fase          INT;
 ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS resolvido_por BIGINT REFERENCES jogador(id) ON DELETE SET NULL;
 ALTER TABLE sessao_enigma ADD COLUMN IF NOT EXISTS dt_resolvido  TIMESTAMPTZ;
 
--- Snapshot da energia pessoal no momento em que a partida começou.
--- Coop: multiplica a fração final da equipe para devolver energia ao sair.
-ALTER TABLE partida_jogador ADD COLUMN IF NOT EXISTS energia_entrada NUMERIC;
-
--- Barra de energia ÚNICA da equipe numa sala coop. Começa em 100, decai no
--- tempo (decaimento_min), cai a cada erro de qualquer um (penalidade_erro),
--- sobe a cada enigma resolvido (bonus_enigma) e na vitória (bonus_vitoria).
-CREATE TABLE IF NOT EXISTS partida_equipe (
-  sessao_id   BIGINT      PRIMARY KEY REFERENCES sessao(id) ON DELETE CASCADE,
-  energia     NUMERIC     NOT NULL,
-  dt_energia  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  dt_inicio   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  dt_fim      TIMESTAMPTZ
-);
-
--- Tentativa passa a servir também o coop, onde não há partida_jogador por
--- porta: partida_id vira opcional e a tentativa se amarra em sessao/jogador.
+-- Tentativa serve também as fases (sem partida por porta): partida_id
+-- opcional; amarra em sessao/jogador/ordem.
 ALTER TABLE tentativa ALTER COLUMN partida_id DROP NOT NULL;
 ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS sessao_id  BIGINT REFERENCES sessao(id) ON DELETE CASCADE;
 ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS jogador_id BIGINT REFERENCES jogador(id) ON DELETE CASCADE;
 ALTER TABLE tentativa ADD COLUMN IF NOT EXISTS ordem      INT;
 
+-- Desfaz o desenho abandonado de "modo de sala" (barra de energia da equipe).
+-- Energia agora é sempre PESSOAL. Idempotente.
+DROP TABLE IF EXISTS partida_equipe;
+ALTER TABLE partida_jogador DROP COLUMN IF EXISTS energia_entrada;
+ALTER TABLE sessao          DROP COLUMN IF EXISTS fase_atual;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessao_modo_chk') THEN
+    ALTER TABLE sessao DROP CONSTRAINT sessao_modo_chk;
+  END IF;
+END $$;
+ALTER TABLE sessao DROP COLUMN IF EXISTS modo;
+DELETE FROM parametro WHERE escopo = 'global' AND chave IN ('qtd_fases', 'enigmas_por_fase');
+
+-- Doação de energia entre jogadores. Qualquer um pode doar a qualquer outro,
+-- na porta ou na fase; vários podem doar. Doador perde `doacao_energia` % e
+-- o alvo ganha o mesmo (limitado pelo teto de 100 e pela energia do doador).
+-- Doar deixa marca de caráter positiva. Pode DESTRAVAR quem esgotou sem concluir.
+CREATE TABLE IF NOT EXISTS doacao (
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id       BIGINT NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
+  de_jogador_id   BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
+  para_jogador_id BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
+  valor           NUMERIC NOT NULL,
+  porta           INT,
+  dt              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Desistir de um enigma: o jogo revela a resposta por `custo_desistir` % da
+-- energia pessoal. `orgulho` = havia outro jogador à frente (já passou da
+-- fase) e mesmo assim preferiu pedir ao jogo -> marca de caráter negativa.
+CREATE TABLE IF NOT EXISTS desistencia (
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  sessao_id  BIGINT NOT NULL REFERENCES sessao(id) ON DELETE CASCADE,
+  jogador_id BIGINT REFERENCES jogador(id) ON DELETE SET NULL,
+  enigma_id  BIGINT REFERENCES enigma(id),
+  ordem      INT,
+  custo      NUMERIC NOT NULL,
+  orgulho    BOOLEAN NOT NULL DEFAULT false,
+  porta      INT,
+  dt         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Parâmetros novos (globais; sala/enigma podem sobrepor).
 INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
-  ('global', NULL, 'bonus_enigma',      3),   -- % que volta ao resolver um enigma
-  ('global', NULL, 'bonus_vitoria',    10),   -- % que volta ao vencer a sala
-  ('global', NULL, 'piso_energia',      0),   -- energia mínima ao entrar numa partida (0 = honra o "afundou")
-  ('global', NULL, 'qtd_fases',         3),   -- fases numa sala coop
-  ('global', NULL, 'enigmas_por_fase',  3)    -- enigmas por fase
+  ('global', NULL, 'bonus_enigma',     3),   -- % que volta ao resolver um enigma
+  ('global', NULL, 'bonus_vitoria',   10),   -- % que volta ao vencer a sala
+  ('global', NULL, 'piso_energia',     0),   -- energia mínima ao entrar numa partida (0 = honra o "afundou")
+  ('global', NULL, 'doacao_energia',  10),   -- % transferido por doação de energia
+  ('global', NULL, 'custo_desistir',  20)    -- % pago para o jogo revelar a resposta
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 
+
+
+-- =====================================================================
+--  MUNDO — porta multiplayer 2D (tipo 'mundo'). Estado vivo no Node
+--  (server/mundo.js); aqui só catálogo, parâmetros e o motor de destino.
+--  Os ATOS (doar, saquear, pacto...) vão para `evento` via
+--  registrar_evento e para `carater`. Pesos ficam em regra_destino.
+-- =====================================================================
+
+INSERT INTO tipo_evento (codigo, descricao) VALUES
+  ('DOOU_ITEM',       'Doou item do próprio inventário a outro jogador'),
+  ('ALIMENTOU',       'Deu comida a jogador desmaiado de fome'),
+  ('DEPOSITOU_BAU',   'Depositou itens no baú da equipe'),
+  ('SAQUEOU_BAU',     'Sacou do baú da equipe além do que tinha depositado'),
+  ('ROUBOU_BLOCO',    'Tomou o bloco que outro jogador estava minerando'),
+  ('PEDIU_SOCORRO',   'Pediu socorro'),
+  ('RECUSOU',         'Recusou um pedido de socorro'),
+  ('IGNOROU',         'Deixou um pedido de socorro sem resposta até o prazo'),
+  ('ACEITOU_PACTO',   'Aceitou um pedido de socorro'),
+  ('CUMPRIU_PACTO',   'Aceitou o socorro e ajudou'),
+  ('TENTOU_CUMPRIR',  'Aceitou o socorro, foi em direção, não chegou a tempo'),
+  ('ROMPEU_PACTO',    'Aceitou o socorro e não se moveu')
+ON CONFLICT (codigo) DO NOTHING;
+
+INSERT INTO eixo_destino (codigo, nome, pontos_min, pontos_max) VALUES
+  ('GENEROSIDADE',   'Generosidade',   -500, 500),
+  ('CONFIABILIDADE', 'Confiabilidade', -500, 500)
+ON CONFLICT (codigo) DO NOTHING;
+
+INSERT INTO regra_destino (codigo, eixo, tipo_evento, peso, janela_seg,
+                           max_ocorrencias, exige_alvo_distinto, probabilidade) VALUES
+  ('DOAR_ITEM',        'GENEROSIDADE',   'DOOU_ITEM',       5, 1800, 4, 'S', 1),
+  ('ALIMENTAR',        'SOLIDARIEDADE',  'ALIMENTOU',       8, 1800, 3, 'S', 1),
+  ('DEPOSITAR_BAU',    'GENEROSIDADE',   'DEPOSITOU_BAU',   2, 1800, 5, 'N', 1),
+  ('SAQUEAR_BAU',      'GENEROSIDADE',   'SAQUEOU_BAU',    -6, 1800, 5, 'N', 1),
+  ('ROUBAR_BLOCO',     'GENEROSIDADE',   'ROUBOU_BLOCO',   -4, 1800, 5, 'N', 0.7),
+  ('RECUSAR_SOCORRO',  'CONFIABILIDADE', 'RECUSOU',        -2, 1800, 5, 'N', 1),
+  ('IGNORAR_SOCORRO',  'CONFIABILIDADE', 'IGNOROU',        -4, 1800, 5, 'N', 1),
+  ('CUMPRIR_PACTO',    'CONFIABILIDADE', 'CUMPRIU_PACTO',  10, 1800, 3, 'S', 1),
+  ('TENTAR_CUMPRIR',   'CONFIABILIDADE', 'TENTOU_CUMPRIR',  4, 1800, 3, 'S', 1),
+  ('ROMPER_PACTO',     'CONFIABILIDADE', 'ROMPEU_PACTO',  -15, 3600, 5, 'N', 1)
+ON CONFLICT (codigo) DO NOTHING;
+
+INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
+  ('global', NULL, 'mundo_duracao_seg',       240),  -- tempo pessoal dentro do mundo
+  ('global', NULL, 'mundo_meta_equipe',       120),  -- pontos no baú que fazem TODOS passarem
+  ('global', NULL, 'mundo_fome_seg',            3),  -- segundos por ponto de fome perdido (0-100)
+  ('global', NULL, 'mundo_socorro_prazo_seg',  30),  -- prazo do pedido de socorro
+  ('global', NULL, 'mundo_valor_minerio',       5),
+  ('global', NULL, 'mundo_valor_comida',        2),
+  ('global', NULL, 'mundo_valor_madeira',       1),
+  ('global', NULL, 'mundo_valor_pedra',         1)
+ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
+
+-- A porta do mundo no catálogo. resposta = meta PESSOAL de pontos.
+INSERT INTO enigma (origem, tipo, nivel, ordem, pergunta, resposta, ativo)
+VALUES ('mundo:1', 'mundo', 'Mundo', 3,
+        'Mundo: colete recursos. Meta pessoal de pontos, ou o baú da equipe cheio.', '30', 'S')
+ON CONFLICT (origem) DO NOTHING;
+
+-- Jogos arcade: energia por ação especial (% ; enigma pode sobrepor).
+INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
+  ('global', NULL, 'custo_tiro',       1),   -- Paddle: cada tiro (seta p/ cima)
+  ('global', NULL, 'custo_grudar',     5),   -- Paddle: bola de volta na raquete (seta p/ baixo)
+  ('global', NULL, 'ganho_fruta',      5),   -- Cobrinha: cada fruta comida
+  ('global', NULL, 'custo_escudo',     5),   -- Invasores: escudo de 5s (seta p/ baixo)
+  ('global', NULL, 'teto_ganho_jogo', 30)    -- máximo que um jogo pode DAR de energia por porta
+ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
+
+-- Jogos (tipo 'jogo'): quantas fases/níveis o jogo tem dentro dele (1 = só a
+-- primeira). Chama-se `niveis` para não confundir com `fase` (trecho co-op).
+ALTER TABLE enigma ADD COLUMN IF NOT EXISTS niveis INT NOT NULL DEFAULT 1 CHECK (niveis >= 1);
