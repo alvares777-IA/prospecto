@@ -42,6 +42,7 @@ const JOGOS = {
     'enigma-103.html': { fase: 2, ordem: 203, niveis: 1 },   // Cobrinha (Snake)
     'enigma-104.html': { fase: 2, ordem: 204, niveis: 1 },   // Invasores (Space Invaders)
     'enigma-105.html': { fase: 2, ordem: 90,  niveis: 6 },   // TIM (The Incredible Machine)
+    'enigma-106.html': { fase: 1, ordem: 60,  niveis: 3 },   // Enduro (seca / chuva / noite)
 };
 
 function lerJogo(html, arquivo) {

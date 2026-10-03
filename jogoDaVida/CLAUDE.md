@@ -217,3 +217,10 @@ Estado vivo some quando o processo reinicia, e isso é aceitável. Se algo
 - Este é um protótipo para testar **história e sistemas**. Se você se
   pegar sugerindo polimento visual, animação ou otimização de
   performance, provavelmente é a hora errada. Diga isso.
+
+---
+
+## Memórias e planos
+
+Toda nova memória ou plano deve ser criado em `memorias_e_planos/memorias/` ou `memorias_e_planos/planos/` (nesta pasta), com índice em `memorias_e_planos/MEMORY.md` — não em `~/.claude`.
+

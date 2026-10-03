@@ -130,6 +130,10 @@ resolve com as peças da caixa e não resolve sem elas:
 node jogoDaVida/db/enigmas/tim-teste.mjs     # ~1 min; não é publicado em public/
 ```
 
+**Enduro** (`enigma-106.html`): corrida estilo Atari, 3 fases (pista seca, chuva,
+noite; `niveis = 3`). Meta 500 pts = completar 2 fases (10/carro + 50/fase). Teste
+headless com bot (sem navegador): `node jogoDaVida/db/enigmas/enduro-teste.mjs`.
+
 Sequência: intercala `texto` e `html` (ordem 1,2,3,4… = csv#1, html#1,
 csv#2, html#2…). Mostrados **na ordem** (`enigma.ordem`), não aleatório.
 

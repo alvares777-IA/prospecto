@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="pt-BR" data-answer="500" data-nivel="Jogo" data-titulo="Enduro">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Enduro — jogoDaVida</title>
+<style>
+  html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1}
+  .hud b{color:#e2e8f0}
+  canvas{background:#000;border:1px solid #1e2a45;border-radius:10px;touch-action:none;image-rendering:pixelated}
+  .aviso{min-height:22px;font-size:14px;font-weight:600}
+  .aviso.ok{color:#22c55e}
+  .aviso.erro{color:#ef4444}
+  .aviso.info{color:#94a3b8}
+  button{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer}
+  button:disabled{background:#334155;cursor:default;opacity:.6}
+  button.secundario{background:#334155}
+  .botoes{display:flex;gap:8px}
+  .ajuda{font-size:12px;color:#64748b;max-width:460px;text-align:center}
+</style>
+</head>
+<body>
+<div class="tela">
+  <h1>Enduro</h1>
+  <div class="hud">Fase: <b id="nivel">1/3</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Meta: <b id="meta">500</b></div>
+  <canvas id="c" width="480" height="320"></canvas>
+  <div class="aviso info" id="aviso"></div>
+  <div class="botoes">
+    <button id="btnEnviar" disabled>Enviar pontuação</button>
+    <button id="btnReiniciar" class="secundario">Reiniciar</button>
+  </div>
+  <p class="ajuda">↑ acelera · ↓ freia · ← → desviam. Ultrapasse a cota de carros de cada fase antes
+  do tempo acabar: pista seca, pista com chuva (o carro escorrega e há poças) e pista à noite
+  (só se enxerga pelos faróis). Cada carro ultrapassado vale 10 pontos; cada fase completa, +50.</p>
+</div>
+<script src="fim-jogo.js"></script>
+<script>
+(function () {
+  const embutido = window.parent && window.parent !== window;
+  const META = Number(document.documentElement.getAttribute('data-answer')) || 500;
+  document.getElementById('meta').textContent = META;
+
+  const W = 480, H = 320, HY = 120, ALT = H - HY;   // HY = linha do horizonte
+  const Z0 = 45, ROADW = 200, VISAO = 640;           // perspectiva: t = Z0/(Z0+z)
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+
+  // O jogo roda em resolução fixa; só o TAMANHO NA TELA estica (mesma folga
+  // medida de verdade que os outros jogos usam para tela cheia).
+  function ajustarTamanho() {
+    const tela = document.querySelector('.tela');
+    const folga = [...tela.children].filter(el => el !== cv)
+        .reduce((soma, el) => soma + el.offsetHeight, 0)
+      + tela.children.length * 8 + 28 + 16;
+    const escala = Math.min((window.innerWidth - 24) / cv.width, (window.innerHeight - folga) / cv.height);
+    cv.style.width = Math.round(cv.width * Math.max(escala, 0.3)) + 'px';
+    cv.style.height = Math.round(cv.height * Math.max(escala, 0.3)) + 'px';
+  }
+  window.addEventListener('resize', ajustarTamanho);
+  ajustarTamanho();
+
+  const $pontos = document.getElementById('pontos'), $aviso = document.getElementById('aviso'), $nivel = document.getElementById('nivel');
+  const $btnEnviar = document.getElementById('btnEnviar'), $btnReiniciar = document.getElementById('btnReiniciar');
+
+  // ── som (WebAudio sintetizado, sem arquivo) ──
+  let actx = null, motor = null;
+  function iniciarAudio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (err) {}
+  }
+  function bip(freq, dur, atraso, tipo, vol) {
+    iniciarAudio();
+    if (!actx) return;
+    try {
+      const t = actx.currentTime + (atraso || 0);
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = tipo || 'square'; o.frequency.value = freq;
+      o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol || 0.18, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (err) {}
+  }
+  const somPassou = () => { bip(880, 0.05); bip(1175, 0.06, 0.05); };
+  const somBateu = () => { bip(200, 0.18, 0, 'sawtooth', 0.25); bip(110, 0.3, 0.12, 'sawtooth', 0.25); };
+  const somPoca = () => bip(320, 0.2, 0, 'triangle', 0.2);
+  const somFase = () => { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.2, 0.27); };
+  function ligarMotor() {
+    iniciarAudio();
+    if (!actx || motor) return;
+    try {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sawtooth'; o.frequency.value = 60; g.gain.value = 0.025;
+      o.connect(g); g.connect(actx.destination); o.start();
+      motor = { o, g };
+    } catch (err) {}
+  }
+  function desligarMotor() {
+    if (!motor) return;
+    try { motor.o.stop(); } catch (err) {}
+    motor = null;
+  }
+  document.addEventListener('pointerdown', iniciarAudio, true);
+  document.addEventListener('keydown', iniciarAudio, true);
+
+  // ── fases ──
+  // quota = carros a ultrapassar; tempo em segundos; grip: ganho/amortecimento
+  // lateral (chuva = escorrega: responde devagar e continua deslizando);
+  // intervalo = entre carros novos; vcar = fração da velocidade máxima.
+  const FASES = [
+    { nome: 'Pista seca',      quota: 20, tempo: 60, ganho: 10,  amort: 8,   empurra: 1.1, acel: 95, intervalo: [0.9, 1.5], vcar: [0.35, 0.70], pocas: 0,        troca: 0 },
+    { nome: 'Pista com chuva', quota: 22, tempo: 60, ganho: 2.8, amort: 2.4, empurra: 1.2, acel: 80, intervalo: [0.8, 1.3], vcar: [0.33, 0.68], pocas: [3, 5],   troca: 0.15 },
+    { nome: 'Pista à noite',   quota: 26, tempo: 60, ganho: 9,   amort: 7,   empurra: 1.2, acel: 95, intervalo: [0.7, 1.1], vcar: [0.35, 0.72], pocas: 0,        troca: 0.3 },
+  ];
+  const VMAX = 260, LANES = [-0.667, 0, 0.667];
+  const CORES_CARRO = ['#e8e83a', '#ff7a3d', '#41d3ff', '#c26bff', '#ffffff', '#ff4d6d', '#7dff6b'];
+
+  // paletas [claro, escuro] das faixas alternadas
+  const PAL = {
+    seca:  { ceu: ['#3aa6ff', '#bfe8ff'], mont: '#4b6a8a', grama: ['#3fae3f', '#379a37'], pista: ['#707070', '#686868'], zebra: ['#d8d8d8', '#c0392b'], faixa: '#f2f2f2' },
+    chuva: { ceu: ['#4b5663', '#98a3ae'], mont: '#3a4552', grama: ['#2f6a3a', '#295e33'], pista: ['#454c56', '#3f464f'], zebra: ['#aeb4ba', '#8c3a34'], faixa: '#cdd3d8' },
+    noite: { ceu: ['#02040c', '#101a3a'], mont: '#080d1c', grama: ['#0d2b16', '#0a2412'], pista: ['#4d505c', '#464955'], zebra: ['#b8b8c0', '#a02a2a'], faixa: '#e8e8f0' },
+  };
+  const hexRgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const mix = (a, b, k) => 'rgb(' + [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * k)).join(',') + ')';
+  const ESCURO = [3, 5, 12];
+
+  let fase, nivel, niveis = 3, pontos, tempo, cota, passados;
+  let dist, vel, px, vlat, cars, pocas, tSpawn, tPoca, estado, tEstado, invul, perdeControle;
+  let bgX, gotas, banner, ultimoTs, fimDeJogo, resolvido, aceleracao, tecla, flash;
+
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+
+  // curvatura da estrada em função da distância: duas senóides com "retas" no meio
+  function curva(d) {
+    const c = 0.9 * Math.sin(d * 0.0011) + 0.6 * Math.sin(d * 0.0029 + 2);
+    const m = Math.max(0, Math.abs(c) - 0.28) * 0.8;
+    return c < 0 ? -m : m;
+  }
+  const KC = 0.0085;   // curvatura → pixels (acumulada por linha)
+
+  function novoJogo() {
+    FimJogo.esconder();
+    pontos = 0; nivel = 1; fimDeJogo = false; resolvido = false; tecla = {};
+    $btnEnviar.disabled = true;
+    iniciarFase();
+    atualizarHud();
+  }
+
+  function iniciarFase() {
+    fase = FASES[nivel - 1];
+    cota = fase.quota; passados = 0; tempo = fase.tempo;
+    dist = 0; vel = 0; px = 0; vlat = 0; cars = []; pocas = [];
+    tSpawn = 0.6; tPoca = fase.pocas ? rnd(...fase.pocas) : 1e9;
+    invul = 0; perdeControle = 0; bgX = 0; flash = 0;
+    gotas = fase === FASES[1] ? Array.from({ length: 110 }, () => ({ x: rnd(0, W), y: rnd(0, H), l: rnd(6, 13) })) : [];
+    estado = 'intro'; tEstado = 1.8;
+    banner = { titulo: 'Fase ' + nivel + ' — ' + fase.nome, sub: 'Ultrapasse ' + cota + ' carros em ' + tempo + 's' };
+    avisar(fase.nome + ': ultrapasse ' + cota + ' carros em ' + tempo + ' segundos.', 'info');
+    atualizarHud();
+  }
+
+  function atualizarHud() { $pontos.textContent = pontos; $nivel.textContent = nivel + '/' + niveis; }
+  function avisar(t, tipo) { $aviso.className = 'aviso ' + (tipo || 'info'); $aviso.textContent = t; }
+
+  function terminar(venceu) {
+    if (fimDeJogo) return;
+    fimDeJogo = true; estado = 'fim'; desligarMotor();
+    if (venceu) { avisar('Enduro completo! Pontuação final: ' + pontos + '.', 'ok'); somFase(); }
+    else { avisar('Fim da corrida. Pontuação final: ' + pontos + '.', 'info'); somBateu(); }
+    FimJogo.mostrar({
+      venceu, pontos, meta: META, embutido,
+      titulo: venceu ? 'Enduro completo!' : 'Fim da corrida',
+      detalhe: venceu ? 'Você venceu as ' + niveis + ' fases.' : 'Faltaram ' + (cota - passados) + ' carros na fase ' + nivel + ' (' + fase.nome.toLowerCase() + ').',
+      aoEnviar: enviarTentativa, aoRepetir: novoJogo,
+    });
+  }
+
+  function enviarTentativa() {
+    if (resolvido) return;
+    if (!embutido) { avisar('Abra este jogo pelo jogoDaVida para valer.', 'erro'); return; }
+    window.parent.postMessage({ tipo: 'tentativa', valor: String(pontos) }, location.origin);
+  }
+
+  function faseCompleta() {
+    pontos += 50; atualizarHud(); somFase();
+    if (nivel >= niveis) { terminar(true); return; }
+    avisar('Fase ' + nivel + ' completa! +50.', 'ok');
+    nivel++;
+    iniciarFase();
+    $btnEnviar.disabled = pontos <= 0;
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.tipo === 'config') {
+      if (Number.isFinite(d.valores?.niveis) && d.valores.niveis >= 1) niveis = Math.min(FASES.length, Math.floor(d.valores.niveis));
+      atualizarHud();
+      return;
+    }
+    if (d.tipo !== 'resultado') return;
+    FimJogo.resultado(!!d.correto);
+    if (d.correto) {
+      resolvido = true;
+      avisar('✓ Resolvido! Pontuação ' + pontos + ' (meta ' + META + ').', 'ok');
+      $btnEnviar.disabled = true;
+    } else {
+      avisar('Ainda não chegou na meta (' + META + '). Continue jogando ou reinicie.', 'erro');
+      $btnEnviar.disabled = pontos <= 0;
+    }
+  });
+
+  const MAPA = { ArrowUp: 'cima', w: 'cima', W: 'cima', ' ': 'cima', ArrowDown: 'baixo', s: 'baixo', S: 'baixo',
+                 ArrowLeft: 'esq', a: 'esq', A: 'esq', ArrowRight: 'dir', d: 'dir', D: 'dir' };
+  window.addEventListener('keydown', e => { const k = MAPA[e.key]; if (!k) return; e.preventDefault(); tecla[k] = true; ligarMotor(); });
+  window.addEventListener('keyup', e => { const k = MAPA[e.key]; if (k) tecla[k] = false; });
+  window.addEventListener('blur', () => { tecla = {}; });
+  $btnEnviar.addEventListener('click', enviarTentativa);
+  $btnReiniciar.addEventListener('click', novoJogo);
+
+  // ── simulação ──
+  function laneLivre(x) {
+    // não deixa as 3 faixas bloqueadas na mesma região
+    const perto = cars.filter(c => c.z > VISAO - 140);
+    const outras = LANES.filter(l => Math.abs(l - x) > 0.1 && perto.some(c => Math.abs(c.tx - l) < 0.1));
+    return !perto.some(c => Math.abs(c.tx - x) < 0.1) && outras.length < 2;
+  }
+  function gerarCarro() {
+    const x = pick(LANES);
+    if (!laneLivre(x)) { tSpawn = 0.15; return; }
+    cars.push({ x, tx: x, z: VISAO, v: VMAX * rnd(...fase.vcar), cor: pick(CORES_CARRO), passou: false, bateu: false, troca: 0 });
+    tSpawn = rnd(...fase.intervalo);
+  }
+
+  function passo(dt) {
+    if (estado === 'intro') {
+      tEstado -= dt;
+      if (tEstado <= 0) estado = 'corrida';
+    }
+    const corre = estado === 'corrida';
+    const sr = 0.35 + 0.65 * vel / VMAX;
+
+    // acelera / freia / inércia
+    let acel = 0;
+    if (estado !== 'fim' && (corre || estado === 'intro')) {
+      if (tecla.cima && perdeControle <= 0 && estado === 'corrida') acel = fase.acel * (1 - 0.35 * vel / VMAX);
+      else if (tecla.baixo) acel = -230;
+      else acel = -22;
+    }
+    vel = Math.max(0, Math.min(VMAX, vel + acel * dt));
+    const fora = Math.abs(px) > 1.08;
+    if (fora && vel > 80) vel = Math.max(80, vel - 260 * dt);
+
+    // lateral: ganho/amortecimento do pavimento (seco x molhado)
+    const dir = (tecla.dir ? 1 : 0) - (tecla.esq ? 1 : 0);
+    const c0 = curva(dist + 20);
+    vlat += (dir * fase.ganho * sr * (perdeControle > 0 ? 0.3 : 1) - vlat * fase.amort) * dt;
+    px += vlat * dt;
+    px -= c0 * fase.empurra * Math.pow(vel / VMAX, 2) * dt;       // força centrífuga
+    px = Math.max(-1.6, Math.min(1.6, px));
+
+    dist += vel * dt;
+    bgX += c0 * vel * dt * 0.05;
+    if (invul > 0) invul -= dt;
+    if (perdeControle > 0) perdeControle -= dt;
+    if (flash > 0) flash -= dt;
+    if (motor) motor.o.frequency.value = 55 + vel * 0.45;
+
+    if (corre) {
+      tempo -= dt;
+      tSpawn -= dt;
+      if (tSpawn <= 0 && vel > 25) gerarCarro();
+      if (fase.pocas) {
+        tPoca -= dt;
+        if (tPoca <= 0 && vel > 25) { pocas.push({ x: rnd(-0.85, 0.85), z: VISAO, usada: false }); tPoca = rnd(...fase.pocas); }
+      }
+    }
+
+    for (const c of cars) {
+      c.z += (c.v - vel) * dt;                                    // z cai quando você é mais rápido
+      if (fase.troca && c.z > 280 && c.troca <= 0 && Math.random() < fase.troca * dt) {
+        const livres = LANES.filter(l => Math.abs(l - c.tx) < 0.7 && Math.abs(l - c.tx) > 0.1);
+        if (livres.length) { c.tx = pick(livres); c.troca = 3; }
+      }
+      if (c.troca > 0) c.troca -= dt;
+      c.x += Math.max(-0.5 * dt, Math.min(0.5 * dt, c.tx - c.x));
+      if (!c.passou && c.z < 0) {
+        c.passou = true;
+        if (!c.bateu && corre) { passados++; pontos += 10; atualizarHud(); somPassou(); $btnEnviar.disabled = false; }
+      }
+      // colisão: Atari — não termina o jogo, derruba a velocidade e tira o controle
+      if (!c.bateu && invul <= 0 && c.z > -6 && c.z < 12 && Math.abs(c.x - px) < 0.3) {
+        c.bateu = true; invul = 1.3; perdeControle = 0.7; flash = 0.35;
+        vel = Math.min(vel, 40); vlat = (px >= c.x ? 1 : -1) * 0.8;
+        somBateu();
+      }
+    }
+    cars = cars.filter(c => c.z > -70 && c.z < VISAO + 200);
+
+    for (const p of pocas) {
+      p.z -= vel * dt;
+      if (!p.usada && invul <= 0 && p.z > -4 && p.z < 10 && Math.abs(p.x - px) < 0.3) {
+        p.usada = true; vlat += (Math.random() < 0.5 ? -1 : 1) * rnd(1.6, 2.4); vel *= 0.85; somPoca();
+      }
+    }
+    pocas = pocas.filter(p => p.z > -30);
+
+    if (corre) {
+      if (passados >= cota) faseCompleta();
+      else if (tempo <= 0) terminar(false);
+    }
+  }
+
+  // ── desenho ──
+  const cxs = new Float32Array(H), hws = new Float32Array(H), wzs = new Float32Array(H);
+
+  function paleta() { return fase === FASES[1] ? PAL.chuva : fase === FASES[2] ? PAL.noite : PAL.seca; }
+
+  function desenharCeu(P, noite) {
+    const g = ctx.createLinearGradient(0, 0, 0, HY);
+    g.addColorStop(0, P.ceu[0]); g.addColorStop(1, P.ceu[1]);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, HY);
+    if (noite) {
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 40; i++) {
+        const sx = ((i * 97 + bgX * 0.2) % W + W) % W, sy = (i * 53) % (HY - 20);
+        ctx.globalAlpha = 0.4 + 0.6 * ((i * 7) % 5) / 5;
+        ctx.fillRect(sx, sy, 1.4, 1.4);
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#e8ecff'; ctx.beginPath(); ctx.arc(((380 + bgX * 0.3) % W + W) % W, 34, 12, 0, 7); ctx.fill();
+      ctx.fillStyle = P.ceu[0]; ctx.beginPath(); ctx.arc(((386 + bgX * 0.3) % W + W) % W, 31, 11, 0, 7); ctx.fill();
+    } else if (P === PAL.seca) {
+      ctx.fillStyle = '#fff6b0'; ctx.beginPath(); ctx.arc(((100 + bgX * 0.3) % W + W) % W, 40, 16, 0, 7); ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(210,216,222,.55)';
+      for (let i = 0; i < 5; i++) ctx.fillRect(((i * 120 + bgX * 0.6) % (W + 80) + W + 80) % (W + 80) - 60, 18 + (i % 3) * 18, 70, 12);
+    }
+    ctx.fillStyle = P.mont;
+    ctx.beginPath(); ctx.moveTo(0, HY);
+    for (let x = 0; x <= W; x += 6) {
+      const u = x + bgX;
+      ctx.lineTo(x, HY - 16 - 12 * Math.sin(u * 0.03) - 9 * Math.sin(u * 0.071 + 1));
+    }
+    ctx.lineTo(W, HY); ctx.fill();
+  }
+
+  function desenharEstrada(P, noite) {
+    const g1 = hexRgb(P.grama[0]), g2 = hexRgb(P.grama[1]), s1 = hexRgb(P.pista[0]), s2 = hexRgb(P.pista[1]);
+    const z1 = hexRgb(P.zebra[0]), z2 = hexRgb(P.zebra[1]), fx = hexRgb(P.faixa);
+    let dxAcc = 0, off = 0;
+    for (let y = H - 1; y > HY; y--) {
+      const t = (y - HY) / ALT;
+      const z = Z0 * (1 / t - 1), wz = dist + z;
+      dxAcc += curva(wz) * KC; off += dxAcc;
+      const hw = t * ROADW, cx = W / 2 + off - px * hw;
+      cxs[y] = cx; hws[y] = hw; wzs[y] = wz;
+      const par = t < 0.07 ? 0 : (Math.floor(wz / 30) & 1);
+      // à noite os faróis iluminam só a parte próxima; longe cai pro escuro
+      const luz = noite ? Math.max(0, Math.min(1, (t - 0.12) / 0.55)) : 1;
+      const m = c => noite ? mix(ESCURO, c, 0.12 + 0.88 * luz * luz) : mix(c, c, 0);
+      ctx.fillStyle = m(par ? g1 : g2); ctx.fillRect(0, y, W, 1);
+      ctx.fillStyle = m(par ? z1 : z2);
+      ctx.fillRect(cx - hw * 1.12, y, hw * 0.12, 1); ctx.fillRect(cx + hw, y, hw * 0.12, 1);
+      ctx.fillStyle = m(par ? s1 : s2); ctx.fillRect(cx - hw, y, hw * 2, 1);
+      if (t > 0.04 && (Math.floor(wz / 40) & 1)) {
+        ctx.fillStyle = m(fx);
+        const lw = Math.max(1, hw * 0.03);
+        ctx.fillRect(cx - hw * 0.333 - lw / 2, y, lw, 1); ctx.fillRect(cx + hw * 0.333 - lw / 2, y, lw, 1);
+      }
+    }
+  }
+
+  function carro(cx, base, w, cor, o) {
+    o = o || {};
+    const h = w * 0.62, x0 = cx - w / 2, y0 = base - h, noite = !!o.noite;
+    ctx.globalAlpha = o.alfa == null ? 1 : o.alfa;
+    ctx.fillStyle = '#111'; ctx.fillRect(x0, y0 + h * 0.7, w * 0.17, h * 0.3); ctx.fillRect(x0 + w * 0.83, y0 + h * 0.7, w * 0.17, h * 0.3);
+    ctx.fillStyle = cor; ctx.fillRect(x0 + w * 0.05, y0 + h * 0.3, w * 0.9, h * 0.5);
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(x0 + w * 0.2, y0, w * 0.6, h * 0.4);
+    ctx.fillStyle = noite ? '#1b2638' : '#a6d8ff'; ctx.fillRect(x0 + w * 0.26, y0 + h * 0.06, w * 0.48, h * 0.24);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = noite ? '#ff3030' : '#d62828';
+    ctx.fillRect(x0 + w * 0.08, y0 + h * 0.42, w * 0.2, h * 0.14); ctx.fillRect(x0 + w * 0.72, y0 + h * 0.42, w * 0.2, h * 0.14);
+    if (noite) {   // brilho das lanternas
+      ctx.fillStyle = 'rgba(255,40,40,.28)';
+      ctx.fillRect(x0 - w * 0.02, y0 + h * 0.3, w * 0.36, h * 0.36); ctx.fillRect(x0 + w * 0.66, y0 + h * 0.3, w * 0.36, h * 0.36);
+    }
+  }
+
+  function desenharObjetos(P, noite) {
+    const lista = [];
+    for (const c of cars) if (c.z > -8) lista.push({ z: c.z, c, p: null });
+    for (const p of pocas) if (p.z > 0) lista.push({ z: p.z, c: null, p });
+    lista.sort((a, b) => b.z - a.z);
+    for (const o of lista) {
+      const t = Z0 / (Z0 + o.z), y = HY + t * ALT, r = Math.max(HY + 1, Math.min(H - 1, Math.round(y)));
+      const hw = hws[r];
+      if (o.p) {
+        const sx = cxs[r] + o.p.x * hw, pw = hw * 0.5;
+        ctx.fillStyle = noite ? 'rgba(80,110,160,.5)' : 'rgba(40,70,110,.65)';
+        ctx.beginPath(); ctx.ellipse(sx, y, pw / 2, Math.max(1, pw * 0.1), 0, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.25)';
+        ctx.beginPath(); ctx.ellipse(sx - pw * 0.1, y - pw * 0.02, pw / 4, Math.max(0.5, pw * 0.04), 0, 0, 7); ctx.fill();
+        continue;
+      }
+      const c = o.c, sx = cxs[r] + c.x * hw, w = hw * 0.34;
+      if (w < 1.2) continue;
+      if (noite && t < 0.5) {   // longe, só as lanternas
+        const k = Math.max(1, hw * 0.07);
+        ctx.fillStyle = '#ff3030';
+        ctx.fillRect(sx - w * 0.42, y - w * 0.3, k, k); ctx.fillRect(sx + w * 0.42 - k, y - w * 0.3, k, k);
+        continue;
+      }
+      carro(sx, y, w, c.cor, { noite, alfa: noite ? Math.min(1, 0.25 + t * 1.1) : 1 });
+    }
+  }
+
+  function desenharJogador(noite) {
+    if (invul > 0 && Math.floor(invul * 14) % 2) return;
+    const dir = (tecla.dir ? 1 : 0) - (tecla.esq ? 1 : 0);
+    carro(W / 2 + dir * 3 + (perdeControle > 0 ? Math.sin(perdeControle * 60) * 4 : 0), H - 6, 74, '#ff2e2e', { noite });
+  }
+
+  function desenharClima(P, noite) {
+    if (fase === FASES[1]) {
+      const g = ctx.createLinearGradient(0, HY - 10, 0, HY + 70);
+      g.addColorStop(0, 'rgba(170,180,190,.85)'); g.addColorStop(1, 'rgba(170,180,190,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, HY - 10, W, 80);
+      ctx.strokeStyle = 'rgba(210,225,240,.55)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const d of gotas) { ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 2, d.y + d.l); }
+      ctx.stroke();
+    }
+    if (noite) {
+      const g = ctx.createLinearGradient(0, HY - 6, 0, HY + 60);
+      g.addColorStop(0, 'rgba(3,5,12,.9)'); g.addColorStop(1, 'rgba(3,5,12,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, HY - 6, W, 66);
+      // cone dos faróis sobre a pista
+      const cone = ctx.createLinearGradient(0, H, 0, H - 120);
+      cone.addColorStop(0, 'rgba(255,245,200,.18)'); cone.addColorStop(1, 'rgba(255,245,200,0)');
+      ctx.fillStyle = cone;
+      ctx.beginPath(); ctx.moveTo(W / 2 - 30, H - 14); ctx.lineTo(W / 2 - 150, H - 120); ctx.lineTo(W / 2 + 150, H - 120); ctx.lineTo(W / 2 + 30, H - 14); ctx.fill();
+    }
+  }
+
+  function texto(s, x, y, tam, cor, alinha) {
+    ctx.font = 'bold ' + tam + 'px system-ui,Segoe UI,Arial,sans-serif';
+    ctx.textAlign = alinha || 'left';
+    ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(s, x + 1, y + 1);
+    ctx.fillStyle = cor || '#fff'; ctx.fillText(s, x, y);
+    ctx.textAlign = 'start';
+  }
+
+  function desenharHud() {
+    texto('CARROS ' + Math.min(passados, cota) + '/' + cota, 8, 16, 13, passados >= cota ? '#7dff6b' : '#fff');
+    const s = Math.max(0, Math.ceil(tempo));
+    texto('TEMPO ' + s, W - 8, 16, 13, s <= 10 ? '#ff6b6b' : '#fff', 'right');
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(8, 22, 90, 5);
+    ctx.fillStyle = '#41d3ff'; ctx.fillRect(8, 22, 90 * Math.min(1, vel / VMAX), 5);
+    texto(Math.round(vel * 0.75) + ' km/h', 8, 42, 11, '#cbd5e1');
+    if (flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (flash * 1.4) + ')'; ctx.fillRect(0, 0, W, H); }
+    if (estado === 'intro' && banner) {
+      ctx.fillStyle = 'rgba(8,12,28,.7)'; ctx.fillRect(0, H / 2 - 44, W, 78);
+      texto(banner.titulo, W / 2, H / 2 - 8, 22, '#fff', 'center');
+      texto(banner.sub, W / 2, H / 2 + 16, 13, '#cbd5e1', 'center');
+    }
+  }
+
+  function desenhar(dt) {
+    const P = paleta(), noite = fase === FASES[2];
+    if (gotas.length) for (const d of gotas) { d.y += (420 + vel) * dt; d.x -= 30 * dt; if (d.y > H) { d.y = -10; d.x = rnd(0, W + 30); } }
+    desenharCeu(P, noite);
+    desenharEstrada(P, noite);
+    desenharObjetos(P, noite);
+    desenharJogador(noite);
+    desenharClima(P, noite);
+    desenharHud();
+  }
+
+  function quadro(ts) {
+    const dt = ultimoTs == null ? 0 : Math.min(0.05, (ts - ultimoTs) / 1000);
+    ultimoTs = ts;
+    if (!fimDeJogo) passo(dt);
+    desenhar(dt);
+    requestAnimationFrame(quadro);
+  }
+
+  if (!embutido) avisar('Abra este jogo pelo jogoDaVida para valer a pena.', 'erro');
+  novoJogo();
+  if (embutido) window.parent.postMessage({ tipo: 'pedir_config' }, location.origin);
+  requestAnimationFrame(quadro);
+})();
+</script>
+</body></html>
