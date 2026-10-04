@@ -14,6 +14,10 @@
           .fj-fundo{position:fixed;inset:0;background:rgba(6,10,26,.78);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
           .fj-cartao{background:#111a33;border:1px solid #1e2a45;border-radius:14px;padding:22px 26px;max-width:380px;width:100%;text-align:center;
                      box-shadow:0 20px 50px rgba(0,0,0,.5);font-family:system-ui,Segoe UI,Arial,sans-serif;color:#e2e8f0}
+          @keyframes fjFundo{from{opacity:0}to{opacity:1}}
+          @keyframes fjCartao{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+          .fj-fundo{animation:fjFundo .6s ease-out}
+          .fj-cartao{animation:fjCartao .6s ease-out}
           .fj-icone{font-size:40px;line-height:1;margin-bottom:6px}
           .fj-titulo{font-size:20px;font-weight:700;margin:0 0 4px}
           .fj-detalhe{font-size:13px;color:#94a3b8;margin:0 0 12px}
