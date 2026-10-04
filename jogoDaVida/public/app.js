@@ -571,6 +571,7 @@ function conectar() {
     $('#jogo-fase-voltar').on('click', voltarAoTabuleiro);
     $('#jogo-fase-desistir').on('click', () => socket.emit('desistir', { ordem: estado.jogo.fase.ordemAberta }));
     $('#jogo-fase-prosseguir').on('click', () => socket.emit('prosseguir'));
+    $(document).on('click', '.btn-voltar-hall', () => socket.emit('voltar_hall'));
 
     socket.on('fase_resolvida', ({ ordem, por, faseCompleta }) => {
         feed(`✓ enigma da fase resolvido por ${por}`);

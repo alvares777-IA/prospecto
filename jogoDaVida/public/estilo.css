@@ -184,3 +184,6 @@ body { transition: background-color .4s ease; }
 }
 .fase-portas .fase-porta-aberta .hall-porta-placa { color: #86efac; }
 .fase-portas .hall-porta { width: 92px; }
+.fase-portas-hall { border-radius: 0; border-top: 0; padding-top: 6px; }
+.fase-portas-hall .hall-porta-folha { height: 60px; }
+.fase-portas-hall .hall-porta-macaneta { top: 28px; }
