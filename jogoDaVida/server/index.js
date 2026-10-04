@@ -519,6 +519,15 @@ io.on('connection', (socket) => {
         transmitirNiveis(c.codigo, c.sessaoId);
     });
 
+    // Volta ao hall sem perder nada: o progresso fica no banco, "prosseguir" retoma.
+    socket.on('voltar_hall', async () => {
+        const c = ctxJogo();
+        if (!c || socket.data.mundo) return;
+        focosFase.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
+        await entregarHall(socket, c.sessaoId, c.eu.jogadorId);
+        transmitirNiveis(c.codigo, c.sessaoId);
+    });
+
     socket.on('prosseguir', async () => {
         const c = ctxJogo();
         if (!c) return;

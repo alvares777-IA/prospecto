@@ -155,6 +155,7 @@
           <button id="jogo-pedir-doacao" class="btn btn-outline-info btn-sm mb-2 ms-1" type="button">Pedir doação de energia</button>
           <button id="jogo-desistir" class="btn btn-outline-danger btn-sm mb-2 ms-1" type="button">Desistir e ver a resposta (-20%)</button>
           <button id="jogo-sair" class="btn btn-outline-secondary btn-sm mb-2 ms-1" type="button">Sair da sala</button>
+          <button class="btn btn-outline-secondary btn-sm mb-2 ms-1 btn-voltar-hall" type="button">🚪 Voltar ao hall</button>
           <div id="resposta-recebida" class="alert alert-info py-2 d-none" role="alert"></div>
           <div id="jogo-aviso" class="small"></div>
         </div>
@@ -162,7 +163,11 @@
         <!-- trecho de fase (co-op): tabuleiro compartilhado -->
         <div id="jogo-fase" class="d-none">
           <p class="mb-1"><strong>Fase — resolvam juntos</strong> · <span id="jogo-fase-prog" class="text-secondary small"></span></p>
-          <div id="jogo-fase-lista" class="fase-portas mb-2"></div>
+          <div id="jogo-fase-lista" class="fase-portas"></div>
+          <div class="fase-portas fase-portas-hall mb-2"><button class="hall-porta hall-porta-saida btn-voltar-hall" type="button" title="Voltar ao hall de espera">
+              <span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>
+              <span class="hall-porta-placa">HALL</span>
+            </button></div>
           <p class="text-secondary small mb-2" id="jogo-fase-quem"></p>
 
           <div id="jogo-fase-resolver" class="d-none">
@@ -175,6 +180,7 @@
               <input id="jogo-fase-resposta" class="form-control" style="max-width:180px" autocomplete="off" placeholder="sua resposta">
               <button class="btn btn-primary" type="submit">Responder</button>
               <button id="jogo-fase-voltar" class="btn btn-outline-secondary" type="button">Voltar</button>
+              <button class="btn btn-outline-secondary btn-voltar-hall" type="button">🚪 Hall</button>
             </form>
             <button id="jogo-fase-desistir" class="btn btn-outline-danger btn-sm mb-2" type="button">Desistir e ver a resposta (-20%)</button>
           </div>

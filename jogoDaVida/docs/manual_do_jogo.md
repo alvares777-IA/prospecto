@@ -151,6 +151,11 @@ os enigmas daquele trecho, cada um uma **porta** (mesmo visual do hall):
 porta fechada "ENIGMA N" — clique para abrir — ou porta aberta
 **✓ resolvido por Fulano**.
 
+**Voltar ao hall:** num enigma (solo ou de fase) há o botão **🚪 Voltar ao
+hall**, e no tabuleiro da fase uma porta **HALL** abaixo das portas. Nada se
+perde: o progresso fica salvo, e clicar na porta do hall retoma de onde
+estava. (No mundo, use "Sair do mundo".)
+
 - **Qualquer jogador na fase resolve qualquer enigma dela.** A resolução
   vale para **todos** — quem resolveu fica marcado.
 - Os jogadores chegam à fase **em ritmos diferentes**. Quem correu na
