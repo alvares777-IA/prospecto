@@ -372,6 +372,7 @@ function conectar() {
         $('#resposta-recebida').addClass('d-none').empty();
         $('#hall').removeClass('d-none');
         $('#hall-proxima').text(`próxima: porta ${porta}${estado.jogo.total ? ' de ' + estado.jogo.total : ''}`);
+        $('#hall-porta-num').text(`PORTA ${porta}`);
         aplicarAmbiente(COR_HALL);
         renderHall();
         sincDoacaoBtn();
@@ -671,17 +672,20 @@ function renderFase() {
 
     const $ul = $('#jogo-fase-lista').empty();
     f.enigmas.forEach((e, i) => {
-        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
+        const $p = $('<button class="hall-porta" type="button">');
+        $('<span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>').appendTo($p);
+        const $placa = $('<span class="hall-porta-placa">').appendTo($p);
         if (e.resolvido) {
-            $('<span class="text-success">')
-                .text(`✓ enigma ${i + 1}${e.porQuem ? ' — ' + e.porQuem : ''}`).appendTo($li);
+            $p.addClass('fase-porta-aberta').prop('disabled', true)
+                .attr('title', `Resolvido${e.porQuem ? ' por ' + e.porQuem : ''}`);
+            $placa.text(`✓ ${i + 1}${e.porQuem ? ' · ' + e.porQuem : ''}`);
         } else {
-            $('<span>').text(`enigma ${i + 1}${e.nivel ? ' · ' + e.nivel : ''}`).appendTo($li);
-            $('<button class="btn btn-sm btn-outline-primary py-0" type="button">')
-                .text('Resolver').prop('disabled', estado.jogo.semEnergia)
-                .on('click', () => abrirFaseEnigma(e)).appendTo($li);
+            $p.attr('title', `Enigma ${i + 1}${e.nivel ? ' · ' + e.nivel : ''} — clique para abrir`)
+                .prop('disabled', estado.jogo.semEnergia)
+                .on('click', () => abrirFaseEnigma(e));
+            $placa.text(`ENIGMA ${i + 1}`);
         }
-        $ul.append($li);
+        $ul.append($p);
     });
 
     // quem mais está nesta fase (mesma porta de entrada do trecho)
@@ -795,8 +799,10 @@ function pediuDoacao(socketId, sou) {
 // Texto do meu botão "Pedir doação" conforme eu tenha ou não um pedido aberto.
 function sincDoacaoBtn() {
     const ativo = socket && !!estado.jogo.doacoesPedidas[socket.id];
-    $('#jogo-pedir-doacao, #hall-pedir-doacao')
+    $('#jogo-pedir-doacao')
         .text(ativo ? 'Cancelar pedido de doação' : 'Pedir doação de energia');
+    $('#hall-pedir-doacao').toggleClass('ativo', ativo)
+        .attr('title', ativo ? 'Cancelar pedido de doação' : 'Pedir doação de energia');
 }
 
 // Onde o jogador está: concluiu > sem energia > enigma da fase > na fase > porta N.
@@ -811,29 +817,43 @@ function descLocal(n, portaFallback) {
     return portaFallback ? `porta ${portaFallback}` : '';
 }
 
+// Hall gráfico: cada jogador é seu avatar com o nome em cima. "Na sala" = no
+// hall (em pé no chão); "fora" = num enigma/fase/mundo (esmaecido, na faixa de baixo).
 function renderHall() {
-    const $ul = $('#hall-jogadores').empty();
+    const $chao = $('#hall-jogadores').empty();
+    const $fora = $('#hall-fora').empty();
+    let nFora = 0;
     for (const p of estado.jogo.niveisLista) {
         const sou = socket && p.socketId === socket.id;
-        const nivel = descLocal(p) || '—';
+        const dentro = sou ? estado.jogo.noHall : !!p.noHall;
+        const lp = (estado.jogo.ultimaLista || []).find(x => x.socketId === p.socketId);
+        const av = avatarPorCodigo(lp?.avatar_codigo);
         const pedeDoacao = pediuDoacao(p.socketId, sou);
-        const $li = $('<li class="d-flex align-items-center flex-wrap gap-2 mb-1">');
-        $('<span>').text(`${p.nome}${sou ? ' (você)' : ''} — ${nivel}${pedeDoacao ? ' · pediu doação' : ''}`).appendTo($li);
+        const estadoTxt = dentro ? 'na sala' : (descLocal(p) || 'fora');
 
-        const pediu = !sou && estado.jogo.pedidos[p.socketId] && !estado.jogo.recusei.has(p.socketId);
-        if (pediu) {
-            $('<button class="btn btn-sm btn-outline-info py-0">')
-                .text('Oferecer ajuda')
-                .on('click', () => socket.emit('oferecer_ajuda', { paraSocketId: p.socketId }))
-                .appendTo($li);
-            $('<button class="btn btn-sm btn-outline-danger py-0">')
-                .text('Não ajudar (+2%)')
-                .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId }))
-                .appendTo($li);
+        const $j = $('<div class="hall-jogador">').toggleClass('eu', !!sou).toggleClass('fora', !dentro)
+            .attr('title', `${p.nome} — ${estadoTxt}${pedeDoacao ? ' · pediu doação' : ''}`);
+        $('<div class="hall-nome">').text(p.nome + (pedeDoacao ? ' 🔋' : '')).appendTo($j);
+        $('<img alt="">').attr('src', av ? av.arquivo : '').appendTo($j);
+        $('<div class="hall-estado">').text(estadoTxt).appendTo($j);
+
+        if (!sou) {
+            const $ac = $('<div class="hall-acoes">').appendTo($j);
+            const pediu = estado.jogo.pedidos[p.socketId] && !estado.jogo.recusei.has(p.socketId);
+            if (pediu) {
+                $('<button type="button" title="Oferecer ajuda">🤝</button>')
+                    .on('click', () => socket.emit('oferecer_ajuda', { paraSocketId: p.socketId })).appendTo($ac);
+                $('<button type="button" title="Não ajudar (+2%)">✋</button>')
+                    .on('click', () => socket.emit('nao_ajudar', { paraSocketId: p.socketId })).appendTo($ac);
+            }
+            if (!p.terminou) {
+                $('<button type="button" title="Doar energia">⚡</button>')
+                    .on('click', () => socket.emit('doar_energia', { paraSocketId: p.socketId })).appendTo($ac);
+            }
         }
-        if (!sou && !p.terminou) botaoDoar($li, p);
-        $ul.append($li);
+        if (dentro) $chao.append($j); else { $fora.append($j); nFora++; }
     }
+    $('#hall-fora-box').toggleClass('d-none', !nFora);
 }
 
 function renderJogadores() {
@@ -908,10 +928,10 @@ function atualizarInicio() {
 
 function renderMensagem(m) {
     const hora = new Date(m.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const $linha = $('<div class="mb-1">');
-    $('<span class="text-secondary small">').text(`[${hora}] `).appendTo($linha);
-    $('<strong>').text(m.de + ': ').appendTo($linha);
-    $('<span>').text(m.texto).appendTo($linha);
+    const $linha = $('<div class="nota">');
+    $('<b>').text(m.de + ' ').appendTo($linha);
+    $('<small>').text(hora).appendTo($linha);
+    $('<div>').text(m.texto).appendTo($linha);
     const chat = $('#chat').append($linha)[0];
     chat.scrollTop = chat.scrollHeight;
 }

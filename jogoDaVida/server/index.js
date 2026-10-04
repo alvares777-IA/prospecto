@@ -176,6 +176,9 @@ const doacoesPedidas = new Map();
 // voltar ao tabuleiro, ao resolver, ao avançar da fase ou ao sair.
 const focosFase = new Map();
 
+// Quem está agora no hall (mesma chave). Entra ao receber 'hall'; sai ao prosseguir.
+const noHall = new Set();
+
 function limparDoacao(codigo, sessaoId, jogadorId, socketIdPedinte) {
     if (doacoesPedidas.delete(chavePedido(sessaoId, jogadorId))) {
         io.to(codigo).emit('doacao_resolvida', { socketId: socketIdPedinte });
@@ -188,6 +191,7 @@ async function entregarHall(socket, sessaoId, jogadorId) {
     try {
         const st = await jogo.garantirPartida(sessaoId, jogadorId);
         if (st.terminou) return socket.emit('jogo_terminado', { porta: st.total, energia: st.energia });
+        noHall.add(chavePedido(sessaoId, jogadorId));
         socket.emit('hall', { porta: st.porta, total: st.total });
     } catch (err) {
         console.warn('[jogo] entregarHall:', err.message);
@@ -224,6 +228,7 @@ async function transmitirNiveis(codigo, sessaoId) {
                 terminou: concluiu,                          // concluiu a sala de verdade
                 travado: !!n?.fim && !concluiu,              // dt_fim por esgotamento (sem energia)
                 naFase: !!n?.na_fase,
+                noHall: noHall.has(chavePedido(sessaoId, mb.jogadorId)),
                 foco: focosFase.get(chavePedido(sessaoId, mb.jogadorId)) || null,
             };
         }).filter(Boolean);
@@ -245,6 +250,7 @@ async function aposRespostaSolo(codigo, sessaoId, jogadorId, nome, sock, r) {
             await jogo.finalizarPartida(sessaoId, jogadorId);   // grava a energia pessoal
             sock?.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
         } else {
+            noHall.add(chavePedido(sessaoId, jogadorId));
             sock?.emit('hall', { porta: r.porta });   // hall antes da próxima porta
         }
         transmitirNiveis(codigo, sessaoId);
@@ -524,12 +530,15 @@ io.on('connection', (socket) => {
                 if (depois.terminou) {
                     socket.emit('jogo_terminado', { porta: depois.total, energia: depois.energia });
                 } else {
+                    noHall.add(chavePedido(c.sessaoId, c.eu.jogadorId));
                     socket.emit('hall', { porta: depois.porta, total: depois.total });
                 }
                 transmitirNiveis(c.codigo, c.sessaoId);
                 return;
             }
+            noHall.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
             socket.emit('meu_enigma', st);
+            transmitirNiveis(c.codigo, c.sessaoId);
         } catch (err) { console.warn('[jogo] prosseguir:', err.message); }
     });
 
@@ -682,6 +691,7 @@ io.on('connection', (socket) => {
                 limparPedido(saiu.codigo, meta.sessaoId, m.jogadorId, socket.id);
                 limparDoacao(saiu.codigo, meta.sessaoId, m.jogadorId, socket.id);
                 focosFase.delete(`${meta.sessaoId}:${m.jogadorId}`);
+                noHall.delete(`${meta.sessaoId}:${m.jogadorId}`);
             }
             if (m.anonimo) {
                 // anônimo "perde tudo ao sair"

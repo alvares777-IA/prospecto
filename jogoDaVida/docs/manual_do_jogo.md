@@ -22,8 +22,8 @@ outras pessoas e atravessa uma série de **enigmas**. Resolver enigma é a
 tarefa visível — mas o que o jogo observa de verdade é **como você age com
 os outros** enquanto resolve: se ajuda, se abandona, se cobra, se mente.
 
-Não há gráficos, não há tutorial. Salas são páginas, ações são botões,
-conversa é no chat.
+Não há tutorial. Salas são páginas, ações são botões (o hall e as fases
+usam portas desenhadas), conversa é no mural de recados.
 
 ---
 
@@ -133,14 +133,23 @@ porta cada um está.
 
 ### 6.2 Hall de espera
 
-Entre uma porta e a seguinte você cai num **hall**. Ali o chat está sempre
-aberto, você vê o nível de cada jogador e decide: deixar uma mensagem e
-**Prosseguir**, ou **aguardar** alguém. Ninguém te empurra.
+Entre uma porta e a seguinte você cai num **hall**: uma sala desenhada, com
+uma **porta numerada** (clique nela para entrar no enigma) e uma **porta de
+SAÍDA** (pede confirmação antes de sair da sala). Cada jogador aparece como
+seu **avatar com o nome em cima**: quem está no hall fica em pé no chão
+(**na sala**); quem está num enigma, fase ou mundo fica esmaecido na faixa
+**Fora da sala**, com o local indicado. Sob os outros avatares ficam ícones
+de ação: 🤝 oferecer ajuda e ✋ não ajudar (quando a pessoa pediu ajuda) e
+⚡ doar energia. O ícone **🔋** no canto da sala pede (ou cancela) doação de
+energia. O **mural de recados** fica sempre aberto: deixe um recado e
+entre, ou **aguarde** alguém. Ninguém te empurra.
 
 ### 6.3 Fase (trecho coletivo)
 
 Quando sua porta cai numa fase, a tela vira um **tabuleiro compartilhado**:
-os enigmas daquele trecho, cada um **aberto** ou **✓ resolvido por Fulano**.
+os enigmas daquele trecho, cada um uma **porta** (mesmo visual do hall):
+porta fechada "ENIGMA N" — clique para abrir — ou porta aberta
+**✓ resolvido por Fulano**.
 
 - **Qualquer jogador na fase resolve qualquer enigma dela.** A resolução
   vale para **todos** — quem resolveu fica marcado.
@@ -184,7 +193,7 @@ o jogo não te diz o que faz com elas (seção 7).
 Independente do enigma, você pode **transferir energia** para outro jogador.
 Funciona na porta, no hall e dentro de uma fase.
 
-- **Pedir doação de energia** — botão perto de "Pedir ajuda" (e no hall).
+- **Pedir doação de energia** — botão perto de "Pedir ajuda" (no hall é o ícone 🔋).
   Não custa nada; só sinaliza que você precisa. Aparece um "· pediu doação"
   ao lado do seu nome para todo mundo. Clicar de novo cancela o pedido.
 - **Doar energia** — botão ao lado de cada outro jogador. Você **perde
@@ -214,7 +223,7 @@ enigma aberto da fase.
 
 ### 6.8 Chat e o spoiler
 
-Fora das fases, o chat **começa fechado** e abre quando alguém te oferece
+Fora das fases, o chat (o **mural de recados**) **começa fechado** e abre quando alguém te oferece
 ajuda (ou no hall). Se a **resposta de um enigma cair no chat**, todo mundo
 que está numa porta solo perde `−10%` de energia — inclusive quem escreveu.
 Quem está numa fase não é penalizado (lá o chat é livre).
@@ -319,7 +328,7 @@ manter progresso, use uma conta.
 | **Sessão** | O registro da sala no banco (uma por código). |
 | **Porta** | Um enigma solo na sua sequência. |
 | **Fase** | Um trecho de enigmas resolvidos coletivamente (`enigma.fase` no catálogo). |
-| **Hall** | Tela de espera entre portas. |
+| **Hall** | Sala de espera entre portas: porta de entrada, porta de saída, avatares e mural. |
 | **Enigma** | O desafio: pergunta de texto ou página interativa. |
 | **Energia** | Recurso pessoal de 0 a 100, que segue a conta entre salas. |
 | **Doação** | Transferência de energia de um jogador para outro. |

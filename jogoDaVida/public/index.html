@@ -120,11 +120,25 @@
 
         <div id="hall" class="d-none">
           <p class="mb-1"><strong>Hall de espera</strong> — <span id="hall-proxima" class="text-secondary"></span></p>
-          <ul id="hall-jogadores" class="list-unstyled small mb-2"></ul>
-          <p class="text-secondary small mb-2">Deixe uma mensagem no chat e prossiga, ou aguarde os outros.</p>
-          <button id="btn-prosseguir" class="btn btn-primary">Prosseguir</button>
-          <button id="hall-pedir-doacao" class="btn btn-outline-info btn-sm ms-1" type="button">Pedir doação de energia</button>
-          <button id="hall-sair" class="btn btn-outline-secondary btn-sm ms-1" type="button">Sair da sala</button>
+          <div class="hall-sala">
+            <div class="hall-parede">
+              <button id="btn-prosseguir" class="hall-porta" type="button" title="Entrar na porta">
+                <span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>
+                <span id="hall-porta-num" class="hall-porta-placa"></span>
+              </button>
+              <button id="hall-sair" class="hall-porta hall-porta-saida" type="button" title="Sair da sala">
+                <span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>
+                <span class="hall-porta-placa">SAÍDA</span>
+              </button>
+              <button id="hall-pedir-doacao" class="hall-doacao" type="button" title="Pedir doação de energia">🔋</button>
+            </div>
+            <div id="hall-jogadores" class="hall-chao"></div>
+          </div>
+          <div id="hall-fora-box" class="hall-fora d-none">
+            <span class="text-secondary small">Fora da sala:</span>
+            <span id="hall-fora" class="d-inline-flex flex-wrap gap-2"></span>
+          </div>
+          <p class="text-secondary small mt-2 mb-0">Clique na porta para entrar, ou aguarde os outros e deixe um recado no mural.</p>
         </div>
 
         <div id="jogo-enigma" class="d-none">
@@ -148,7 +162,7 @@
         <!-- trecho de fase (co-op): tabuleiro compartilhado -->
         <div id="jogo-fase" class="d-none">
           <p class="mb-1"><strong>Fase — resolvam juntos</strong> · <span id="jogo-fase-prog" class="text-secondary small"></span></p>
-          <ul id="jogo-fase-lista" class="list-unstyled small mb-2"></ul>
+          <div id="jogo-fase-lista" class="fase-portas mb-2"></div>
           <p class="text-secondary small mb-2" id="jogo-fase-quem"></p>
 
           <div id="jogo-fase-resolver" class="d-none">
@@ -250,14 +264,15 @@
 
       <hr>
       <p id="chat-fechado" class="text-secondary small d-none">
-        Chat fechado neste enigma — abre quando alguém oferecer ajuda.
+        Mural fechado neste enigma — abre quando alguém oferecer ajuda.
       </p>
       <div id="chat-area">
-        <div id="chat" class="chat-log mb-2"></div>
+        <div class="painel-titulo">📌 Mural de recados</div>
+        <div id="chat" class="chat-log mural mb-2"></div>
         <form id="form-msg" class="d-flex gap-2">
           <input id="campo-msg" class="form-control" maxlength="500"
-                 autocomplete="off" placeholder="mensagem…">
-          <button class="btn btn-outline-light" type="submit">Enviar</button>
+                 autocomplete="off" placeholder="escreva um recado…">
+          <button class="btn btn-outline-light" type="submit">Afixar</button>
         </form>
       </div>
     </section>
