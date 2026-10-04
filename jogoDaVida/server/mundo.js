@@ -37,6 +37,23 @@ const PASSO_TIQUES = 2;       // anda 1 bloco a cada 2 tiques (5 blocos/s)
 const ROUBO_MS = 3000;        // janela em que o bloco "ainda era" de quem minerava
 export const LARG = 48, ALT = 32;
 
+// Adversários. O servidor decide tudo (perseguição, golpe, flecha, dano);
+// o cliente só desenha. Matar dá o item direto no inventário de quem matou.
+// Valores-base; vida/velocidade/dano/quantidade vêm de `parametro` (mundo_*), ver parametrosMundo.
+const COMBATE_PADRAO = { vidaJogador: 10, vidaPct: 100, velPct: 100, danoPct: 100, qtdInicial: 9, qtdMax: 12 };
+const cmb = m => m.params.combate || COMBATE_PADRAO;
+const vidaMaxDe = m => cmb(m).vidaJogador;
+const REGEN_TIQUES = 50;      // +1 de vida a cada 5s (se não estiver faminto)
+const INVUL_TIQUES = 6;       // pausa entre dois danos no mesmo jogador
+const CD_GOLPE = 5;           // jogador: 1 golpe a cada 0,5s
+const SPAWN_TIQUES = 250;     // 1 mob novo a cada 25s (até qtdMax)
+const MOBS = {
+    zumbi:     { vida: 4, dano: 1, vel: 6, cd: 9,  aggro: 9,  drop: ['comida', 1] },
+    esqueleto: { vida: 3, dano: 1, vel: 5, cd: 22, aggro: 10, drop: ['madeira', 1], distancia: true },
+    soldado:   { vida: 6, dano: 2, vel: 3, cd: 10, aggro: 8,  drop: ['minerio', 1] },
+};
+const TIPOS_MOB = Object.keys(MOBS);
+
 const mundos = new Map();     // `${sessaoId}:${ordem}` -> mundo
 let cb = { emitirSala() {}, emitirPara() {}, aoAto() {}, aoFim() {} };
 
@@ -114,7 +131,9 @@ function obterMundo(sessaoId, ordem, params) {
             pedidos: new Map(),       // id -> pedido de socorro
             mudados: [],              // blocos alterados desde o último envio
             tique: 0,
+            mobs: new Map(), flechas: [], proxMob: 1,
         };
+        for (let i = 0; i < cmb(m).qtdInicial; i++) gerarMob(m, TIPOS_MOB[i % 3], 12);
         mundos.set(k, m);
     }
     m.params = params;
@@ -152,6 +171,7 @@ export function entrar(sessaoId, ordem, params, { jogadorId, socketId, nome, ano
             jogadorId, socketId, nome, anonimo, x: p.x, y: p.y,
             dir: { dx: 0, dy: 0 }, passo: 0,
             inv: { minerio: 0, comida: 0, madeira: 0, pedra: 0 },
+            vida: vidaMaxDe(m), invul: 0, golpeCd: 0, regen: 0,
             fome: 100, fomeAcum: 0, preso: false, desmaiado: false, ausente: false,
             minerando: null, entrada: Date.now(), fim: Date.now() + params.duracaoSeg * 1000,
             depositou: 0, sacou: 0, finalizado: false,
@@ -169,7 +189,7 @@ function pacoteEu(m, j) {
     return {
         jogadorId: j.jogadorId, inv: j.inv, pontos: pontosDe(j.inv, m.params.valores),
         metaPessoal: m.params.metaPessoal, metaEquipe: m.params.metaEquipe, valores: m.params.valores,
-        fome: Math.round(j.fome), fim: j.fim, agora: Date.now(),
+        fome: Math.round(j.fome), vida: j.vida, vidaMax: vidaMaxDe(m), fim: j.fim, agora: Date.now(),
     };
 }
 
@@ -528,6 +548,9 @@ function passoJogador(m, j) {
     if (agora >= j.fim) return finalizar(m, j);
     if (j.depBuf && !j.minerando?.bau) flushDeposito(m, j);   // soltou o baú: 1 evento com o total
 
+    if (j.golpeCd > 0) j.golpeCd--;
+    if (j.vida < vidaMaxDe(m) && j.fome > FOME_ALERTA && !j.desmaiado && ++j.regen >= REGEN_TIQUES) { j.regen = 0; j.vida++; enviarEu(m, j); }
+
     // fome
     j.fomeAcum += TICK_MS / 1000;
     if (j.fomeAcum >= m.params.fomeSeg) { j.fomeAcum = 0; j.fome = Math.max(0, j.fome - 1); }
@@ -679,6 +702,154 @@ function passoPedidos(m) {
     }
 }
 
+// ── adversários ────────────────────────────────────────────────────
+const livre = (m, x, y) => dentro(x, y) && (m.g[idx(x, y)] === T.GRAMA || m.g[idx(x, y)] === T.TERRA);
+
+function gerarMob(m, tipo, distMin) {
+    for (let t = 0; t < 40; t++) {
+        const x = 1 + Math.floor(Math.random() * (LARG - 2)), y = 1 + Math.floor(Math.random() * (ALT - 2));
+        if (!livre(m, x, y)) continue;
+        if (Math.hypot(x - m.bauPos.x, y - m.bauPos.y) < distMin) continue;
+        if ([...m.jogadores.values()].some(j => Math.hypot(j.x - x, j.y - y) < distMin)) continue;
+        if ([...m.mobs.values()].some(o => o.x === x && o.y === y)) continue;
+        const id = m.proxMob++, vm = Math.max(1, Math.round(MOBS[tipo].vida * cmb(m).vidaPct / 100));
+        m.mobs.set(id, { id, tipo, x, y, vida: vm, vm, face: 1, cd: 0, passo: 0, atq: 0 });
+        return;
+    }
+}
+
+// Linha reta sem parede entre dois pontos (água e buraco não bloqueiam flecha).
+function linhaLivre(m, a, b) {
+    const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2);
+    for (let i = 1; i < n; i++) {
+        const x = Math.round(a.x + (b.x - a.x) * i / n), y = Math.round(a.y + (b.y - a.y) * i / n);
+        const bl = m.g[idx(x, y)];
+        if (!ANDAVEL.has(bl) && bl !== T.AGUA) return false;
+    }
+    return true;
+}
+
+function machucar(m, j, n) {
+    if (j.finalizado || j.ausente || m.tique < j.invul) return;
+    j.invul = m.tique + INVUL_TIQUES;
+    j.vida -= n;
+    if (j.vida > 0) { enviarEu(m, j); return; }
+    // nocaute: acorda junto ao baú, perde um quarto do que carregava
+    const perdas = [];
+    for (const it of ITENS) {
+        const p = Math.floor(j.inv[it] / 4);
+        if (p > 0) { j.inv[it] -= p; perdas.push(`${p} ${it}`); }
+    }
+    const livres = [];
+    for (let y = m.bauPos.y - 2; y <= m.bauPos.y + 2; y++)
+        for (let x = m.bauPos.x - 3; x <= m.bauPos.x + 3; x++) if (m.g[idx(x, y)] === T.GRAMA) livres.push({ x, y });
+    const p = livres[Math.floor(Math.random() * livres.length)] || { x: m.bauPos.x + 1, y: m.bauPos.y };
+    j.x = p.x; j.y = p.y; j.vida = vidaMaxDe(m); j.invul = m.tique + 30;
+    j.preso = false; j.desmaiado = false; j.fome = Math.max(j.fome, 30);
+    j.caminho = null; j.querMinerar = null; j.minerando = null; j.dir = { dx: 0, dy: 0 };
+    enviarEu(m, j);
+    cb.emitirPara(j.socketId, 'mundo_aviso', { tipo: 'danger', texto: `Você foi derrubado e acordou junto ao baú${perdas.length ? ` — perdeu ${perdas.join(', ')}` : ''}.` });
+}
+
+// Derrubar um adversário que estava atrás de OUTRO jogador (ainda por perto) é proteger um aliado.
+function protegeu(m, j, o) {
+    const aliado = o.alvoId != null && o.alvoId !== j.jogadorId ? m.jogadores.get(o.alvoId) : null;
+    if (!aliado || aliado.finalizado || aliado.ausente || dist(aliado, o) > 4) return;
+    ato(m, j, aliado.jogadorId, 'PROTEGEU_ALIADO', aliado.vida, { adversario: o.tipo, vida_aliado: aliado.vida, vida_max: vidaMaxDe(m), distancia: +dist(aliado, o).toFixed(1) },
+        { tipo: 'positivo', descricao: `defendeu ${aliado.nome} de um ${o.tipo}` });
+    cb.emitirPara(aliado.socketId, 'mundo_aviso', { texto: `${j.nome} te defendeu de um ${o.tipo}.`, tipo: 'success' });
+}
+
+// Golpe do jogador num adversário vizinho (clique no bicho ou Espaço).
+export function atacar(sessaoId, ordem, jogadorId, mobId) {
+    const a = jogadorAtivo(sessaoId, ordem, jogadorId); if (!a) return;
+    const { m, j } = a;
+    if (j.desmaiado || j.preso || j.golpeCd > 0) return;
+    let o = mobId != null ? m.mobs.get(Number(mobId)) : null;
+    if (!o || !vizinho(j, o.x, o.y)) {   // sem alvo válido: o mais próximo ao alcance
+        o = null;
+        for (const c of m.mobs.values()) if (vizinho(j, c.x, c.y) && (!o || dist(j, c) < dist(j, o))) o = c;
+    }
+    if (!o) return;
+    j.golpeCd = CD_GOLPE; j.minerando = null;
+    o.vida--; o.face = Math.sign(j.x - o.x) || o.face;
+    if (o.vida > 0) return;
+    m.mobs.delete(o.id);
+    protegeu(m, j, o);
+    const [item, qtd] = MOBS[o.tipo].drop;
+    j.inv[item] += qtd;
+    enviarEu(m, j);
+    cb.emitirPara(j.socketId, 'mundo_aviso', { tipo: 'success', texto: `${o.tipo} derrotado: +${qtd} ${item}.` });
+}
+
+const danoDe = (m, def) => Math.max(1, Math.round(def.dano * cmb(m).danoPct / 100));
+
+function alvoMaisPerto(m, o, raio) {
+    let melhor = null, md = raio;
+    for (const j of m.jogadores.values()) {
+        if (j.finalizado || j.ausente) continue;
+        const d = dist(o, j);
+        if (d <= md) { md = d; melhor = j; }
+    }
+    return melhor;
+}
+
+function passoMobs(m) {
+    m.flechas = m.flechas.filter(f => {
+        f.x += f.vx; f.y += f.vy;
+        const rx = Math.round(f.x), ry = Math.round(f.y);
+        if (++f.idade > 30 || !dentro(rx, ry)) return false;
+        const bl = m.g[idx(rx, ry)];
+        if (!ANDAVEL.has(bl) && bl !== T.AGUA) return false;
+        for (const j of m.jogadores.values()) {
+            if (!j.finalizado && !j.ausente && Math.hypot(j.x - f.x, j.y - f.y) < 0.7) { machucar(m, j, f.dano); return false; }
+        }
+        return true;
+    });
+
+    for (const o of m.mobs.values()) {
+        const def = MOBS[o.tipo];
+        if (o.cd > 0) o.cd--;
+        if (o.atq > 0) o.atq--;
+        const alvo = alvoMaisPerto(m, o, def.aggro);
+        if (alvo) { o.face = Math.sign(alvo.x - o.x) || o.face; o.alvoId = alvo.jogadorId; }
+        const d = alvo ? dist(o, alvo) : Infinity;
+
+        if (def.distancia && alvo) {
+            if (d <= 7 && o.cd === 0 && linhaLivre(m, o, alvo)) {
+                m.flechas.push({ x: o.x, y: o.y, vx: (alvo.x - o.x) / d * 0.6, vy: (alvo.y - o.y) / d * 0.6, idade: 0, dano: danoDe(m, def) });
+                o.cd = def.cd; o.atq = 3;
+            }
+        } else if (alvo && vizinho(o, alvo.x, alvo.y)) {
+            if (o.cd === 0) { o.cd = def.cd; o.atq = 3; machucar(m, alvo, danoDe(m, def)); }
+            continue;
+        }
+
+        if (++o.passo < Math.max(1, Math.round(def.vel * 100 / cmb(m).velPct))) continue;
+        o.passo = 0;
+        let destino = null;
+        if (alvo && !(def.distancia && d <= 4 && d >= 3)) {
+            if (def.distancia && d < 3) {   // arqueiro recua
+                const dx = Math.sign(o.x - alvo.x), dy = Math.sign(o.y - alvo.y);
+                for (const [ax, ay] of [[dx, dy], [dx, 0], [0, dy]]) if ((ax || ay) && livre(m, o.x + ax, o.y + ay)) { destino = [o.x + ax, o.y + ay]; break; }
+            } else {
+                const r = rota(m, o, alvo.x, alvo.y, true);
+                if (r?.length) destino = r[0];
+            }
+        } else if (!alvo && Math.random() < 0.25) {
+            const [dx, dy] = VIZ8[Math.floor(Math.random() * 4)];
+            destino = [o.x + dx, o.y + dy];
+        }
+        if (destino && livre(m, destino[0], destino[1])
+            && ![...m.mobs.values()].some(c => c !== o && c.x === destino[0] && c.y === destino[1])
+            && ![...m.jogadores.values()].some(j => j.x === destino[0] && j.y === destino[1])) {
+            o.x = destino[0]; o.y = destino[1];
+        }
+    }
+
+    if (m.tique % SPAWN_TIQUES === 0 && m.mobs.size < cmb(m).qtdMax) gerarMob(m, TIPOS_MOB[Math.floor(Math.random() * 3)], 12);
+}
+
 function enviarEu(m, j) {
     if (j.socketId && !j.ausente) cb.emitirPara(j.socketId, 'mundo_eu', pacoteEu(m, j));
 }
@@ -688,12 +859,14 @@ function instantaneo(m) {
         agora: Date.now(),
         jogadores: [...m.jogadores.values()].map(j => ({
             id: j.jogadorId, nome: j.nome, x: j.x, y: j.y,
-            preso: j.preso, desmaiado: j.desmaiado, ausente: j.ausente, fome: Math.round(j.fome),
+            preso: j.preso, desmaiado: j.desmaiado, ausente: j.ausente, fome: Math.round(j.fome), vida: j.vida, vm: vidaMaxDe(m),
             rean: j.desmaiado && j.reanimando ? +(j.reanimando / TIQUES_REANIMAR).toFixed(2) : 0,
             dest: j.caminho?.length ? j.caminho[j.caminho.length - 1] : null,
             min: j.minerando ? { x: j.minerando.x, y: j.minerando.y, p: +(j.minerando.prog / j.minerando.precisa).toFixed(2) } : null,
         })),
         blocos: m.mudados.splice(0),
+        mobs: [...m.mobs.values()].map(o => ({ id: o.id, t: o.tipo, x: o.x, y: o.y, v: o.vida, vm: o.vm, f: o.face, a: o.atq > 0 ? 1 : 0 })),
+        flechas: m.flechas.map(f => ({ x: +f.x.toFixed(2), y: +f.y.toFixed(2), vx: f.vx, vy: f.vy })),
         bau: { total: totalBau(m), meta: m.params.metaEquipe, inv: m.bau },
         pedidos: [...m.pedidos.values()].filter(p => !p.fechado || [...p.respostas.values()].some(r => r.tipo === 'aceitou' && !r.fechado))
             .map(p => ({
@@ -717,6 +890,7 @@ setInterval(() => {
         try {
             for (const j of [...m.jogadores.values()]) passoJogador(m, j);
             passoPedidos(m);
+            passoMobs(m);
             // fome muda devagar: manda o "eu" de cada um 1x/s
             if (m.tique % 10 === 0) for (const j of m.jogadores.values()) enviarEu(m, j);
             cb.emitirSala(salaSocket(m.sessaoId, m.ordem), 'mundo_estado', instantaneo(m));

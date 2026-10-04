@@ -728,7 +728,8 @@ export async function parametrosMundo(sessaoId, jogadorId) {
     const st = await estado(sessaoId, jogadorId);
     if (!st || st.tipo !== 'mundo' || st.terminou) return null;
     const chaves = ['mundo_duracao_seg', 'mundo_meta_equipe', 'mundo_fome_seg', 'mundo_socorro_prazo_seg',
-        'mundo_valor_minerio', 'mundo_valor_comida', 'mundo_valor_madeira', 'mundo_valor_pedra'];
+        'mundo_valor_minerio', 'mundo_valor_comida', 'mundo_valor_madeira', 'mundo_valor_pedra',
+        'mundo_vida_jogador', 'mundo_mob_vida_pct', 'mundo_mob_vel_pct', 'mundo_mob_dano_pct', 'mundo_mob_qtd', 'mundo_mob_max'];
     const r = await pool.query(
         `SELECT k, param(k, $1, $2) AS v FROM unnest($3::text[]) AS k`,
         [st.enigmaId, sessaoId, chaves],
@@ -746,6 +747,11 @@ export async function parametrosMundo(sessaoId, jogadorId) {
             madeira: p.mundo_valor_madeira ?? 1, pedra: p.mundo_valor_pedra ?? 1,
         },
         metaPessoal: Number.isFinite(meta) ? meta : 30,
+        combate: {
+            vidaJogador: p.mundo_vida_jogador || 10, vidaPct: p.mundo_mob_vida_pct || 100,
+            velPct: p.mundo_mob_vel_pct || 100, danoPct: p.mundo_mob_dano_pct || 100,
+            qtdInicial: p.mundo_mob_qtd ?? 9, qtdMax: Math.max(p.mundo_mob_max ?? 12, p.mundo_mob_qtd ?? 0),
+        },
     };
 }
 

@@ -5,7 +5,12 @@
 
 const Mundo = (() => {
     const T = { GRAMA: 0, ARVORE: 1, PEDRA: 2, MINERIO: 3, ARBUSTO: 4, AGUA: 5, BURACO: 6, TERRA: 7, BAU: 8, TABUA: 9, MURO: 10 };
-    const TAM = 32;                        // px por bloco na tela
+    const TAM = 32;                        // lado das texturas
+    // Vista 3/4 ("2.5D"): o chão é achatado (TY < TX) e os blocos sólidos
+    // ganham altura (AL) — topo + face da frente — com ordenação por fileira.
+    const TX = 32, TY = 24, AL = 14;
+    const ALTURA_PICK = { [T.ARVORE]: 18, [T.PEDRA]: AL, [T.MINERIO]: AL, [T.MURO]: AL, [T.BAU]: AL, [T.ARBUSTO]: 8 };
+    const CUBOS = new Set([T.PEDRA, T.MINERIO, T.MURO]);
     const ITENS = ['pedra', 'madeira', 'comida', 'minerio'];
     const NOME_ITEM = { pedra: 'Pedra', madeira: 'Madeira', comida: 'Comida', minerio: 'Minério' };
     const COR_PARTICULA = { [T.ARVORE]: '#3f7d2c', [T.PEDRA]: '#8b8f98', [T.MINERIO]: '#f5c542', [T.ARBUSTO]: '#c0392b', [T.TABUA]: '#b0793f', [T.MURO]: '#8b8f98' };
@@ -18,6 +23,9 @@ const Mundo = (() => {
     let bau = { total: 0, meta: 0 };
     let pedidos = [];
     let particulas = [];
+    let mobs = new Map();                  // id -> { t, alvo:{x,y}, vis:{x,y}, v, vm, f, a, fase }
+    let flechas = [];
+    let golpeEm = 0, vidaAnt = null, piscarAte = 0;
     let dirAtual = { dx: 0, dy: 0 };
     const teclas = new Set();
     let mouse = null, segurando = false, minerandoEm = null;
@@ -74,6 +82,34 @@ const Mundo = (() => {
             g.fillStyle = '#4b4e55';
             for (let y = 0; y < 8; y += 2) { g.fillRect(0, y * p, TAM, p / 3); for (let x = (y / 2) % 2 ? 0 : 2; x < 8; x += 4) g.fillRect(x * p, y * p, p / 3, 2 * p); }
         })];
+        // sprites em pé (árvore, arbusto, baú): desenhados sobre a grama, ancorados na base
+        const sprite = (w, h, fn) => { const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), rngDe(w * 31 + h)); return c; };
+        const celulas = (g, r, x, y, w, h, cores, c = 3) => { for (let j = 0; j < h; j += c) for (let i = 0; i < w; i += c) { g.fillStyle = cores[Math.floor(r() * cores.length)]; g.fillRect(x + i, y + j, c, c); } };
+        t.arvore = sprite(32, 46, (g, r) => {
+            g.fillStyle = '#6b4423'; g.fillRect(12, 26, 8, 20);
+            g.fillStyle = '#4e3018'; g.fillRect(17, 26, 3, 20);
+            celulas(g, r, 3, 12, 26, 16, ['#2a5f1e', '#2f6b22', '#285c1c']);
+            g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(3, 12, 26, 16);
+            celulas(g, r, 3, 12, 26, 16, ['#2f6b22', '#35752a', '#3f7d2c']);
+            g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(3, 21, 26, 7);
+            celulas(g, r, 3, 2, 26, 11, ['#4a9a38', '#52a63f', '#5db048']);
+            g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(25, 12, 4, 16);
+        });
+        t.arbusto = sprite(32, 22, (g, r) => {
+            celulas(g, r, 4, 8, 24, 13, ['#2f7d32', '#388e3c', '#2e6b2f'], 3);
+            g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(4, 15, 24, 6);
+            celulas(g, r, 4, 3, 24, 6, ['#4caf50', '#43a047', '#56b85a'], 3);
+            g.fillStyle = '#e53935'; [[8, 12], [18, 10], [23, 15], [12, 17], [6, 16]].forEach(([x, y]) => g.fillRect(x, y, 3, 3));
+        });
+        t.bau = sprite(32, 30, (g) => {
+            g.fillStyle = '#6a3f19'; g.fillRect(3, 14, 26, 14);
+            g.fillStyle = '#7a4a1f'; g.fillRect(3, 14, 26, 8);
+            g.fillStyle = '#9c6230'; g.fillRect(3, 6, 26, 9);
+            g.fillStyle = '#b87a40'; g.fillRect(3, 6, 26, 3);
+            g.fillStyle = '#3d240e'; g.fillRect(3, 14, 26, 2); g.fillRect(3, 27, 26, 1);
+            g.fillStyle = '#f5c542'; g.fillRect(14, 13, 4, 6);
+            g.fillStyle = '#c99a1e'; g.fillRect(14, 17, 4, 2);
+        });
         return t;
     }
 
@@ -85,7 +121,7 @@ const Mundo = (() => {
             const bin = atob(m.blocos); const g = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) g[i] = bin.charCodeAt(i);
             mapa = { larg: m.larg, alt: m.alt, g, bau: m.bau };
-            jogadores.clear(); particulas = []; pedidos = [];
+            jogadores.clear(); particulas = []; pedidos = []; mobs.clear(); flechas = []; vidaAnt = null;
             aplicarEu(e);
             duracao = e.fim - e.agora;
             $('#mundo-overlay').addClass('d-none').empty();
@@ -108,6 +144,23 @@ const Mundo = (() => {
                 else jogadores.set(j.id, { ...j, alvo: { x: j.x, y: j.y }, vis: { x: j.x, y: j.y } });
             }
             for (const id of [...jogadores.keys()]) if (!vistos.has(id)) jogadores.delete(id);
+
+            const mvistos = new Set();
+            for (const o of st.mobs || []) {
+                mvistos.add(o.id);
+                const a = mobs.get(o.id);
+                if (a) {
+                    if (o.v < a.v) { sangrar(o.x, o.y, '#c0392b'); somGolpe(); }
+                    Object.assign(a, o, { alvo: { x: o.x, y: o.y } });
+                } else mobs.set(o.id, { ...o, alvo: { x: o.x, y: o.y }, vis: { x: o.x, y: o.y }, fase: 0 });
+            }
+            for (const [id, a] of [...mobs]) if (!mvistos.has(id)) { sangrar(a.alvo.x, a.alvo.y, '#d4d4d4', 14); mobs.delete(id); }
+            flechas = st.flechas || [];
+            const meu = st.jogadores.find(j => j.id === eu?.jogadorId);
+            if (meu) {
+                if (vidaAnt != null && meu.vida < vidaAnt) { piscarAte = performance.now() + 350; somGolpe(); }
+                vidaAnt = meu.vida;
+            }
             bau = st.bau;
             pedidos = st.pedidos;
             if (avisoFixo && !meuJogador()?.desmaiado) { avisoFixo = false; $('#mundo-aviso').attr('class', 'd-none'); }
@@ -178,6 +231,12 @@ const Mundo = (() => {
         <li><span class="mundo-ico mundo-ico-comida"></span> arbusto = comida, 2 pts · <span class="mundo-ico mundo-ico-madeira"></span> árvore = madeira, 1 · <span class="mundo-ico mundo-ico-pedra"></span> pedra, 1</li>
         <li>Se dois cavam o mesmo bloco, <b>quem dá o último golpe leva</b>.</li>
       </ul>
+      <div class="fw-bold mb-1">Adversários</div>
+      <ul class="ps-3 mb-2">
+        <li><b>Zumbis</b> (lentos), <b>esqueletos</b> (atiram flechas) e <b>soldados medievais</b> (fortes) rondam o mapa. Seus corações ficam no canto da tela.</li>
+        <li><b>Clique no bicho</b> (segure) ou aperte <b>Espaço</b> para bater. Cada um derrubado deixa um item: comida, madeira ou minério.</li>
+        <li>Se zerar a vida, você acorda junto ao baú e perde ¼ do que carregava. Em grupo é bem mais fácil.</li>
+      </ul>
       <div class="fw-bold mb-1">Sobreviver</div>
       <ul class="ps-3 mb-0">
         <li><b>Fome</b> cai com o tempo. <b>E</b> come (gasta a comida e os pontos dela). Zerou, você <b>desmaia</b>: segure <b>E</b> por 5s para comer a sua comida e levantar — sem comida, só alguém te alimentando.</li>
@@ -236,13 +295,110 @@ const Mundo = (() => {
     function camera() {
         const w = cv.clientWidth, h = cv.clientHeight;
         const me = meuJogador();
-        const cx = me ? me.vis.x * TAM + TAM / 2 : (mapa ? mapa.bau.x * TAM : 0);
-        const cy = me ? me.vis.y * TAM + TAM / 2 : (mapa ? mapa.bau.y * TAM : 0);
-        const mw = mapa.larg * TAM, mh = mapa.alt * TAM;
+        const cx = me ? me.vis.x * TX + TX / 2 : (mapa ? mapa.bau.x * TX : 0);
+        const cy = me ? me.vis.y * TY + TY / 2 : (mapa ? mapa.bau.y * TY : 0);
+        const mw = mapa.larg * TX, mh = mapa.alt * TY;
         return {
             x: Math.round(Math.max(0, Math.min(mw - w, cx - w / 2))),
             y: Math.round(Math.max(0, Math.min(mh - h, cy - h / 2))), w, h,
         };
+    }
+
+    const bloco = (x, y) => (x < 0 || y < 0 || x >= mapa.larg || y >= mapa.alt) ? T.AGUA : mapa.g[y * mapa.larg + x];
+    const ehAlto = b => b === T.ARVORE || b === T.ARBUSTO || b === T.BAU || CUBOS.has(b);
+
+    // Cubo: topo (achatado) + face da frente escurecida, com realce na quina.
+    function cubo(tex, sx, sy) {
+        ctx.drawImage(tex, 0, 0, TAM, TAM, sx, sy - AL, TX, TY);
+        ctx.drawImage(tex, 0, 0, TAM, TAM, sx, sy + TY - AL, TX, AL);
+        ctx.fillStyle = 'rgba(0,0,0,.38)'; ctx.fillRect(sx, sy + TY - AL, TX, AL);
+        ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(sx, sy - AL, TX, 1);
+        ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(sx + TX - 2, sy + TY - AL, 2, AL);
+    }
+
+    function sombraChao(sx, sy, larg = TX - 6, alt = 7) {
+        ctx.fillStyle = 'rgba(0,0,0,.28)';
+        ctx.beginPath(); ctx.ellipse(sx + TX / 2, sy + TY - 4, larg / 2, alt / 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Boneco de blocos (estilo Minecraft): cabeça, tronco, braços e pernas que
+    // balançam ao andar. `p` = paleta/estilo; `o` = { x, y (pés), dir, fase, atq, afund }.
+    function boneco(p, o) {
+        const { x, y } = o, d = o.dir || 1, af = o.afund || 0;
+        const fino = p.fino ? 1 : 0;
+        const bal = Math.sin(o.fase) * (o.andando ? 4 : 0);
+        const pw = 5 - fino, py = y - 11 + af;
+        // pernas
+        ctx.fillStyle = p.calca;
+        ctx.fillRect(x - 5, py + bal * 0.6, pw, 11 - af); ctx.fillRect(x + 0 + fino, py - bal * 0.6, pw, 11 - af);
+        ctx.fillStyle = p.bota || 'rgba(0,0,0,.35)';
+        ctx.fillRect(x - 5, y - 3 + bal * 0.6, pw, 3); ctx.fillRect(x + fino, y - 3 - bal * 0.6, pw, 3);
+        const ty = y - 23 + af;      // topo do tronco
+        // braço de trás
+        const braco = (bx, frente) => {
+            ctx.fillStyle = p.manga || p.camisa;
+            const ba = o.atq ? -5 : (frente ? bal : -bal) * 0.9;
+            if (p.bracoFrente) ctx.fillRect(bx, ty + 2, 4 - fino, 9 - fino * 2);     // zumbi: braços para a frente
+            else ctx.fillRect(bx, ty + 1 + ba * 0.3, 4 - fino, 11);
+            ctx.fillStyle = p.pele;
+            if (p.bracoFrente) ctx.fillRect(bx + (d > 0 ? 3 : -5), ty + 3, 8, 3);
+            else ctx.fillRect(bx, ty + 10 + ba * 0.3, 4 - fino, 3);
+        };
+        braco(x - 9 + fino, false);
+        // tronco
+        ctx.fillStyle = p.camisa; ctx.fillRect(x - 6, ty, 12, 12);
+        if (p.costelas) { ctx.fillStyle = 'rgba(0,0,0,.35)'; for (let k = 2; k < 11; k += 3) ctx.fillRect(x - 5, ty + k, 10, 1); }
+        if (p.cinto) { ctx.fillStyle = p.cinto; ctx.fillRect(x - 6, ty + 9, 12, 2); }
+        if (p.tunica) { ctx.fillStyle = p.tunica; ctx.fillRect(x - 3, ty, 6, 12); ctx.fillStyle = '#e8c96a'; ctx.fillRect(x - 1, ty + 2, 2, 5); }
+        // braço da frente (com arma na mão)
+        braco(x + 5 - fino, true);
+        const mx = x + (d > 0 ? 8 : -8), my = ty + 8 + (o.atq ? -6 : 0);
+        if (p.arma === 'espada') {
+            ctx.fillStyle = '#d6dbe3'; ctx.fillRect(mx - 1 + (d > 0 ? 2 : -2), my - 14, 2, 16);
+            ctx.fillStyle = '#7a4a1f'; ctx.fillRect(mx - 3 + (d > 0 ? 2 : -2), my + 1, 6, 2);
+        } else if (p.arma === 'arco') {
+            ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(mx + d * 2, my - 3, 8, d > 0 ? -1.3 : Math.PI - 1.3 + 0.0, d > 0 ? 1.3 : Math.PI + 1.3, d < 0 ? false : false); ctx.stroke();
+            ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(mx + d * 2 + d * Math.cos(1.3) * 8, my - 3 - Math.sin(1.3) * 8); ctx.lineTo(mx + d * 2 + d * Math.cos(1.3) * 8, my - 3 + Math.sin(1.3) * 8); ctx.stroke();
+        }
+        if (p.escudo) {   // escudo no braço de trás
+            const ex = x - d * 8 - 4;
+            ctx.fillStyle = p.escudo; ctx.fillRect(ex, ty + 3, 8, 11);
+            ctx.fillStyle = '#d9d9d9'; ctx.fillRect(ex, ty + 3, 8, 1); ctx.fillRect(ex, ty + 13, 8, 1); ctx.fillRect(ex, ty + 3, 1, 11); ctx.fillRect(ex + 7, ty + 3, 1, 11);
+            ctx.fillStyle = '#f5c542'; ctx.fillRect(ex + 3, ty + 6, 2, 5);
+        }
+        // cabeça
+        const hy = ty - 10;
+        ctx.fillStyle = p.pele; ctx.fillRect(x - 5, hy, 10, 10);
+        if (p.cabelo) { ctx.fillStyle = p.cabelo; ctx.fillRect(x - 5, hy, 10, 3); ctx.fillRect(x - 5, hy, 2, 6); ctx.fillRect(x + 3, hy, 2, 6); }
+        if (p.elmo) {
+            ctx.fillStyle = p.elmo; ctx.fillRect(x - 6, hy - 2, 12, 6); ctx.fillRect(x - 6, hy + 2, 2, 6); ctx.fillRect(x + 4, hy + 2, 2, 6);
+            ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x - 6, hy - 2, 12, 1);
+            ctx.fillStyle = '#6c717a'; ctx.fillRect(x - 1, hy + 3, 2, 5);     // nasal
+            ctx.fillStyle = '#c0392b'; ctx.fillRect(x - 1, hy - 5, 2, 3);     // penacho
+        }
+        ctx.fillStyle = p.olho || '#111';
+        if (o.apagado) { ctx.fillRect(x - 3, hy + 6, 2, 1); ctx.fillRect(x + 1, hy + 6, 2, 1); }
+        else { ctx.fillRect(x - 3 + d, hy + 5, 2, 2); ctx.fillRect(x + 1 + d, hy + 5, 2, 2); }
+        if (p.boca) { ctx.fillStyle = p.boca; ctx.fillRect(x - 2 + d, hy + 8, 4, 1); }
+    }
+
+    const PALETA = {
+        zumbi: { pele: '#5d8c4a', camisa: '#2f7f89', calca: '#363b8c', bracoFrente: true, olho: '#1b1b1b', boca: '#2c4a22', cinto: null },
+        esqueleto: { pele: '#e8e8e2', camisa: '#d9d9d1', calca: '#cfcfc7', costelas: true, fino: true, olho: '#222', arma: 'arco', bota: '#bdbdb4' },
+        soldado: { pele: '#e0b890', camisa: '#7d838c', manga: '#7d838c', calca: '#4a3a2a', tunica: '#a32d2d', cinto: '#3d2a14', elmo: '#9aa0a8', arma: 'espada', escudo: '#2b4a9a', bota: '#2a1d10' },
+    };
+    const NOME_MOB = { zumbi: 'Zumbi', esqueleto: 'Esqueleto', soldado: 'Soldado' };
+
+    function paletaJogador(id) {
+        return { pele: '#f1c9a0', cabelo: '#4a2f1b', camisa: corDe(id), calca: '#3b4a8c', bota: '#2a2a33' };
+    }
+
+    function barraVida(sx, sy, v, vm, larg = 22) {
+        ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(sx - larg / 2 - 1, sy - 1, larg + 2, 5);
+        ctx.fillStyle = v / vm > 0.5 ? '#22c55e' : v / vm > 0.25 ? '#f59e0b' : '#ef4444';
+        ctx.fillRect(sx - larg / 2, sy, larg * Math.max(0, v) / vm, 3);
     }
 
     function quadro(ts) {
@@ -252,48 +408,127 @@ const Mundo = (() => {
         ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, w, h);
 
         for (const j of jogadores.values()) {   // interpolação suave até a posição do servidor
+            const ax = j.vis.x, ay = j.vis.y;
             j.vis.x += (j.alvo.x - j.vis.x) * 0.35; j.vis.y += (j.alvo.y - j.vis.y) * 0.35;
             if (Math.abs(j.alvo.x - j.vis.x) < 0.01) j.vis.x = j.alvo.x;
             if (Math.abs(j.alvo.y - j.vis.y) < 0.01) j.vis.y = j.alvo.y;
+            const dx = j.vis.x - ax;
+            j.andando = Math.abs(dx) + Math.abs(j.vis.y - ay) > 0.004;
+            if (Math.abs(dx) > 0.003) j.dir = Math.sign(dx);
+            if (j.andando || j.min) j.fase = (j.fase || 0) + (j.min ? 0.55 : 0.5);
         }
+        for (const o of mobs.values()) {
+            const ax = o.vis.x, ay = o.vis.y;
+            o.vis.x += (o.alvo.x - o.vis.x) * 0.2; o.vis.y += (o.alvo.y - o.vis.y) * 0.2;
+            if (Math.abs(o.alvo.x - o.vis.x) < 0.01) o.vis.x = o.alvo.x;
+            if (Math.abs(o.alvo.y - o.vis.y) < 0.01) o.vis.y = o.alvo.y;
+            o.andando = Math.abs(o.vis.x - ax) + Math.abs(o.vis.y - ay) > 0.004;
+            if (o.andando) o.fase += 0.4;
+        }
+
         const cam = camera();
-        const x0 = Math.floor(cam.x / TAM), y0 = Math.floor(cam.y / TAM);
-        const x1 = Math.min(mapa.larg - 1, x0 + Math.ceil(w / TAM) + 1), y1 = Math.min(mapa.alt - 1, y0 + Math.ceil(h / TAM) + 1);
+        const x0 = Math.max(0, Math.floor(cam.x / TX) - 1), y0 = Math.max(0, Math.floor(cam.y / TY) - 1);
+        const x1 = Math.min(mapa.larg - 1, x0 + Math.ceil(w / TX) + 3), y1 = Math.min(mapa.alt - 1, y0 + Math.ceil(h / TY) + 4);
         const quadroAgua = Math.floor(ts / 600) % 2;
+
+        // 1) chão (tudo que é plano, e grama sob árvores/arbustos/baú)
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
             const b = mapa.g[y * mapa.larg + x];
-            const vs = texturas[b] || texturas[T.GRAMA];
-            const tex = b === T.AGUA ? vs[quadroAgua] : vs[(x * 7 + y * 13) % vs.length];
-            ctx.drawImage(tex, x * TAM - cam.x, y * TAM - cam.y);
+            const sx = x * TX - cam.x, sy = y * TY - cam.y;
+            if (b === T.AGUA) {
+                ctx.drawImage(texturas[T.AGUA][quadroAgua], 0, 0, TAM, TAM, sx, sy + 2, TX, TY);
+                ctx.fillStyle = 'rgba(0,0,40,.18)'; ctx.fillRect(sx, sy + 2, TX, 3);
+                continue;
+            }
+            const plano = (ehAlto(b) && !CUBOS.has(b)) || b === T.GRAMA ? T.GRAMA : (CUBOS.has(b) ? T.TERRA : b);
+            const vs = texturas[plano];
+            ctx.drawImage(vs[(x * 7 + y * 13) % vs.length], 0, 0, TAM, TAM, sx, sy, TX, TY);
+            if (b === T.BURACO) {
+                ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(sx + 3, sy + 3, TX - 6, TY - 5);
+                ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx + 3, sy + 3, TX - 6, 5);
+            }
+            // sombra projetada pelo vizinho alto da esquerda
+            if (x > 0 && ehAlto(bloco(x - 1, y)) && b !== T.AGUA) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(sx, sy, 9, TY); }
         }
 
-        // mineração em andamento: rachaduras + barra
+        // 2) em pé, ordenados por fileira (quem está mais ao sul cobre quem está ao norte)
+        const fila = [];
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            const b = mapa.g[y * mapa.larg + x];
+            if (!ehAlto(b)) continue;
+            fila.push({ k: y, fn: () => {
+                const sx = x * TX - cam.x, sy = y * TY - cam.y;
+                if (b === T.ARVORE) { sombraChao(sx, sy, 26, 8); ctx.drawImage(texturas.arvore, sx, sy + TY - 44); }
+                else if (b === T.ARBUSTO) { sombraChao(sx, sy, 24, 6); ctx.drawImage(texturas.arbusto, sx, sy + TY - 20); }
+                else if (b === T.BAU) { sombraChao(sx, sy, 28, 8); ctx.drawImage(texturas.bau, sx, sy + TY - 28); }
+                else { sombraChao(sx, sy, TX, 8); cubo(texturas[b][0], sx, sy); }
+            } });
+        }
+
+        for (const j of jogadores.values()) {
+            const souEu = j.id === eu?.jogadorId;
+            fila.push({ k: j.vis.y + 0.02, fn: () => {
+                const sx = j.vis.x * TX - cam.x + TX / 2, sy = j.vis.y * TY - cam.y + TY - 3;
+                sombraChao(sx - TX / 2, sy - TY + 3, 16, 5);
+                if (souEu) { ctx.strokeStyle = 'rgba(250,204,21,.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(sx, sy + 1, 11, 4, 0, 0, Math.PI * 2); ctx.stroke(); }
+                ctx.globalAlpha = j.ausente ? 0.4 : 1;
+                boneco(paletaJogador(j.id), { x: sx, y: sy, dir: j.dir || 1, fase: j.fase || 0, andando: j.andando, atq: !!j.min && Math.sin((j.fase || 0)) > 0.3, afund: j.preso ? 9 : 0, apagado: j.desmaiado });
+                ctx.globalAlpha = 1;
+                rotuloJogador(j, sx, sy, souEu, ts);
+            } });
+        }
+        for (const o of mobs.values()) {
+            fila.push({ k: o.vis.y + 0.02, fn: () => {
+                const sx = o.vis.x * TX - cam.x + TX / 2, sy = o.vis.y * TY - cam.y + TY - 3;
+                sombraChao(sx - TX / 2, sy - TY + 3, 16, 5);
+                boneco(PALETA[o.t], { x: sx, y: sy, dir: o.f || 1, fase: o.fase, andando: o.andando, atq: !!o.a });
+                if (o.v < o.vm) barraVida(sx, sy - 41, o.v, o.vm);
+                ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center';
+                ctx.fillStyle = 'rgba(255,200,200,.9)'; ctx.fillText(NOME_MOB[o.t], sx, sy - (o.v < o.vm ? 45 : 38)); ctx.textAlign = 'start';
+            } });
+        }
+        fila.sort((a, b) => a.k - b.k);
+        for (const e of fila) e.fn();
+
+        // mineração em andamento: rachaduras + barra (sobre o bloco)
         for (const j of jogadores.values()) {
             if (!j.min) continue;
-            const px = j.min.x * TAM - cam.x, py = j.min.y * TAM - cam.y;
+            const alto = ehAlto(bloco(j.min.x, j.min.y)) ? AL : 0;
+            const px = j.min.x * TX - cam.x, py = j.min.y * TY - cam.y - alto;
             ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 2;
             const n = Math.ceil(j.min.p * 5);
-            for (let k = 0; k < n; k++) { ctx.beginPath(); ctx.moveTo(px + 6 + k * 5, py + 4 + (k % 2) * 8); ctx.lineTo(px + 14 + k * 3, py + 18 + (k % 3) * 4); ctx.stroke(); }
-            ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(px + 2, py + TAM - 6, TAM - 4, 4);
-            ctx.fillStyle = j.id === eu?.jogadorId ? '#facc15' : '#f97316'; ctx.fillRect(px + 2, py + TAM - 6, (TAM - 4) * j.min.p, 4);
+            for (let k = 0; k < n; k++) { ctx.beginPath(); ctx.moveTo(px + 6 + k * 5, py + 4 + (k % 2) * 8); ctx.lineTo(px + 14 + k * 3, py + 16 + (k % 3) * 4); ctx.stroke(); }
+            ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(px + 2, py + TY + alto - 6, TX - 4, 4);
+            ctx.fillStyle = j.id === eu?.jogadorId ? '#facc15' : '#f97316'; ctx.fillRect(px + 2, py + TY + alto - 6, (TX - 4) * j.min.p, 4);
         }
 
-        // mira do mouse
+        // flechas
+        for (const f of flechas) {
+            const fx = f.x * TX - cam.x + TX / 2, fy = f.y * TY - cam.y + TY / 2 - 12, ang = Math.atan2(f.vy * TY, f.vx * TX);
+            ctx.save(); ctx.translate(fx, fy); ctx.rotate(ang);
+            ctx.fillStyle = '#8a5a2b'; ctx.fillRect(-7, -1, 12, 2);
+            ctx.fillStyle = '#e5e5e5'; ctx.fillRect(5, -2, 3, 4);
+            ctx.fillStyle = '#ddd'; ctx.fillRect(-8, -2, 2, 4);
+            ctx.restore();
+        }
+
+        // mira do mouse (no chão sob o bloco apontado)
         const me = meuJogador();
         if (mouse && me) {
-            const tx = Math.floor((mouse.x + cam.x) / TAM), ty = Math.floor((mouse.y + cam.y) / TAM);
-            const perto = Math.max(Math.abs(tx - me.alvo.x), Math.abs(ty - me.alvo.y)) <= 1;
-            ctx.strokeStyle = perto ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.25)'; ctx.lineWidth = 2;
-            ctx.strokeRect(tx * TAM - cam.x + 1, ty * TAM - cam.y + 1, TAM - 2, TAM - 2);
+            const al = mobSobMouse() ? null : alvoMouse();
+            if (al) {
+                const perto = Math.max(Math.abs(al.x - me.alvo.x), Math.abs(al.y - me.alvo.y)) <= 1;
+                const alto = ehAlto(bloco(al.x, al.y)) ? ALTURA_PICK[bloco(al.x, al.y)] || AL : 0;
+                ctx.strokeStyle = perto ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.25)'; ctx.lineWidth = 2;
+                ctx.strokeRect(al.x * TX - cam.x + 1, al.y * TY - cam.y + 1 - Math.min(alto, AL), TX - 2, TY - 2 + Math.min(alto, AL));
+            }
         }
-
         if (me?.dest) {   // para onde estou indo (clique)
-            const dx = me.dest[0] * TAM - cam.x, dy = me.dest[1] * TAM - cam.y;
+            const dx = me.dest[0] * TX - cam.x, dy = me.dest[1] * TY - cam.y;
             ctx.strokeStyle = 'rgba(250,204,21,.9)'; ctx.lineWidth = 2;
             const r = 6 + (Math.sin(ts / 150) + 1) * 2;
-            ctx.beginPath(); ctx.arc(dx + TAM / 2, dy + TAM / 2, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.ellipse(dx + TX / 2, dy + TY / 2, r, r * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
         }
-        for (const j of jogadores.values()) desenharJogador(j, cam, ts);
 
         // partículas
         particulas = particulas.filter(p => (p.vida -= 16) > 0);
@@ -304,17 +539,24 @@ const Mundo = (() => {
         }
         ctx.globalAlpha = 1;
 
+        // profundidade: névoa no horizonte (topo da tela) e canto escuro
+        const gv = ctx.createLinearGradient(0, 0, 0, h);
+        gv.addColorStop(0, 'rgba(120,150,210,.16)'); gv.addColorStop(0.35, 'rgba(120,150,210,0)'); gv.addColorStop(1, 'rgba(0,0,0,.12)');
+        ctx.fillStyle = gv; ctx.fillRect(0, 0, w, h);
+
         // entardecer: escurece com o tempo, com luz em volta de mim
         if (eu && me) {
             const restante = Math.max(0, eu.fim - (Date.now() + deltaRelogio));
             const escuro = Math.min(0.55, (1 - restante / duracao) * 0.6);
             if (escuro > 0.02) {
-                const lx = me.vis.x * TAM + TAM / 2 - cam.x, ly = me.vis.y * TAM + TAM / 2 - cam.y;
-                const gr = ctx.createRadialGradient(lx, ly, TAM * 1.5, lx, ly, TAM * 6);
+                const lx = me.vis.x * TX + TX / 2 - cam.x, ly = me.vis.y * TY + TY / 2 - cam.y;
+                const gr = ctx.createRadialGradient(lx, ly, TX * 1.5, lx, ly, TX * 6);
                 gr.addColorStop(0, 'rgba(8,10,30,0)'); gr.addColorStop(1, `rgba(8,10,30,${escuro})`);
                 ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
             }
         }
+        if (ts < piscarAte) { ctx.fillStyle = `rgba(220,20,20,${0.35 * (piscarAte - ts) / 350})`; ctx.fillRect(0, 0, w, h); }
+        desenharVida(me);
         if (me?.desmaiado) {
             const txt = eu?.inv.comida > 0 ? 'Desmaiado de fome — SEGURE E por 5s para comer e levantar' : 'Desmaiado de fome — sem comida. Peça socorro.';
             ctx.font = 'bold 15px system-ui'; ctx.textAlign = 'center';
@@ -332,34 +574,34 @@ const Mundo = (() => {
 
     function corDe(id) { const h = (Number(id) * 137) % 360; return `hsl(${h} 70% 55%)`; }
 
-    function desenharJogador(j, cam, ts) {
-        const px = j.vis.x * TAM - cam.x, py = j.vis.y * TAM - cam.y;
-        const souEu = j.id === eu?.jogadorId;
-        const afund = j.preso ? 8 : 0;
-        ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(px + 6, py + TAM - 6, TAM - 12, 4);
-        ctx.globalAlpha = j.ausente ? 0.4 : 1;
-        ctx.fillStyle = corDe(j.id); ctx.fillRect(px + 6, py + 4 + afund, TAM - 12, TAM - 10 - afund);
-        ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(px + 6, py + TAM - 10, TAM - 12, 4);
-        ctx.fillStyle = '#f1d3b3'; ctx.fillRect(px + 9, py + 6 + afund, TAM - 18, 10);
-        if (j.desmaiado) { ctx.fillStyle = '#111'; ctx.fillRect(px + 11, py + 11 + afund, 4, 1); ctx.fillRect(px + 17, py + 11 + afund, 4, 1); }
-        else { ctx.fillStyle = '#111'; ctx.fillRect(px + 11, py + 9 + afund, 3, 3); ctx.fillRect(px + 18, py + 9 + afund, 3, 3); }
-        ctx.globalAlpha = 1;
-        if (souEu) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(px + 5.5, py + 3.5 + afund, TAM - 11, TAM - 9 - afund); }
-
+    function rotuloJogador(j, sx, sy, souEu, ts) {
         ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center';
+        const topo = sy - 36 + (j.preso ? 9 : 0);
         const rotulo = j.nome + (j.ausente ? ' (ausente)' : '');
         const lw = ctx.measureText(rotulo).width + 8;
-        ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(px + TAM / 2 - lw / 2, py - 14, lw, 13);
-        ctx.fillStyle = souEu ? '#facc15' : '#fff'; ctx.fillText(rotulo, px + TAM / 2, py - 4);
+        ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(sx - lw / 2, topo - 12, lw, 13);
+        ctx.fillStyle = souEu ? '#facc15' : '#fff'; ctx.fillText(rotulo, sx, topo - 2);
+        if (!souEu && j.vida != null && j.vida < (j.vm || 10)) barraVida(sx, topo - 18, j.vida, j.vm || 10);
         if (j.preso || j.desmaiado) {
             ctx.font = 'bold 13px system-ui'; ctx.fillStyle = Math.floor(ts / 400) % 2 ? '#ef4444' : '#fff';
-            ctx.fillText(j.preso ? 'SOCORRO!' : 'desmaiado', px + TAM / 2, py - 18);
+            ctx.fillText(j.preso ? 'SOCORRO!' : 'desmaiado', sx, topo - 18);
         }
         if (j.rean > 0) {   // comendo para levantar
-            ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(px, py + TAM + 2, TAM, 5);
-            ctx.fillStyle = '#22c55e'; ctx.fillRect(px, py + TAM + 2, TAM * j.rean, 5);
+            ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(sx - 16, sy + 4, 32, 5);
+            ctx.fillStyle = '#22c55e'; ctx.fillRect(sx - 16, sy + 4, 32 * j.rean, 5);
         }
         ctx.textAlign = 'start';
+    }
+
+    function desenharVida(me) {
+        const v = me?.vida ?? eu?.vida; if (v == null) return;
+        const vm = eu?.vidaMax || 10;
+        const hm = [[0, 1, 1, 0, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 0, 0], [0, 0, 0, 1, 0, 0, 0]];
+        for (let i = 0; i < vm; i++) {
+            const ox = 8 + i * 17, oy = 8, cheio = i < v;
+            ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(ox - 1, oy - 1, 16, 14);
+            hm.forEach((lin, yy) => lin.forEach((c, xx) => { if (c) { ctx.fillStyle = cheio ? (yy < 2 && xx < 3 ? '#ff7b7b' : '#e02b2b') : '#4a2a2a'; ctx.fillRect(ox + xx * 2, oy + yy * 2, 2, 2); } }));
+        }
     }
 
     function desenharMinimapa(w, h) {
@@ -369,6 +611,7 @@ const Mundo = (() => {
         for (let y = 0; y < mapa.alt; y++) for (let x = 0; x < mapa.larg; x++) {
             ctx.fillStyle = cores[mapa.g[y * mapa.larg + x]]; ctx.fillRect(ox + x * e, oy + y * e, e, e);
         }
+        for (const o of mobs.values()) { ctx.fillStyle = '#ff3b3b'; ctx.fillRect(ox + o.alvo.x * e - 1, oy + o.alvo.y * e - 1, 3, 3); }
         for (const j of jogadores.values()) {
             ctx.fillStyle = j.id === eu?.jogadorId ? '#facc15' : (j.preso || j.desmaiado ? '#ef4444' : '#fff');
             ctx.fillRect(ox + j.alvo.x * e - 1, oy + j.alvo.y * e - 1, 4, 4);
@@ -376,7 +619,34 @@ const Mundo = (() => {
     }
 
     function estourar(x, y, cor) {
-        for (let i = 0; i < 10; i++) particulas.push({ x: x * TAM + TAM / 2, y: y * TAM + TAM / 2, vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 3, cor, vida: 600 });
+        for (let i = 0; i < 10; i++) particulas.push({ x: x * TX + TX / 2, y: y * TY + TY / 2 - 6, vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 3, cor, vida: 600 });
+    }
+    function sangrar(x, y, cor, n = 8) {
+        for (let i = 0; i < n; i++) particulas.push({ x: x * TX + TX / 2, y: y * TY + TY / 2 - 12, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2.5, cor, vida: 500 });
+    }
+
+    // ── mira: converte o ponteiro em bloco (levando a altura dos blocos em conta) ──
+    function alvoMouse() {
+        if (!mouse || !mapa) return null;
+        const cam = camera();
+        const px = mouse.x + cam.x, py = mouse.y + cam.y;
+        const tx = Math.floor(px / TX), ty = Math.floor(py / TY);
+        // um bloco alto logo ao sul cobre a parte de baixo desta fileira
+        for (const k of [1, 2]) {
+            const b = bloco(tx, ty + k);
+            if (ehAlto(b) && py >= (ty + k) * TY - (ALTURA_PICK[b] || AL) + (k === 2 ? 0 : 0) && py < (ty + k + 1) * TY) return { x: tx, y: ty + k };
+        }
+        return { x: tx, y: ty };
+    }
+    function mobSobMouse() {
+        if (!mouse || !mapa) return null;
+        const cam = camera();
+        let achou = null;
+        for (const o of mobs.values()) {
+            const sx = o.vis.x * TX - cam.x + TX / 2, sy = o.vis.y * TY - cam.y + TY - 3;
+            if (Math.abs(mouse.x - sx) <= 9 && mouse.y >= sy - 34 && mouse.y <= sy + 2) achou = o;
+        }
+        return achou ? { id: achou.id, x: achou.alvo.x, y: achou.alvo.y } : null;
     }
 
     // ── painel (HTML) ─────────────────────────────────────────────────
@@ -524,6 +794,17 @@ const Mundo = (() => {
     }
 
     let actx = null;
+    function somGolpe() {
+        try {
+            const agora = performance.now(); if (agora - golpeEm < 80) return; golpeEm = agora;
+            actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+            const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+            o.type = 'sawtooth'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.1);
+            o.connect(g); g.connect(actx.destination);
+            g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+            o.start(t); o.stop(t + 0.13);
+        } catch (e) { /* sem áudio */ }
+    }
     function somColeta() {
         try {
             actx = actx || new (window.AudioContext || window.webkitAudioContext)();
@@ -549,6 +830,7 @@ const Mundo = (() => {
         const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
         if (n >= 0) { itemSel = ITENS[n]; renderPainel(); return; }
         if (e.code === 'KeyE' && !e.repeat) comecarComer();
+        if (e.code === 'Space') { e.preventDefault(); sock.emit('mundo_atacar', {}); }   // golpeia o adversário mais próximo
     });
     window.addEventListener('keyup', e => {
         if (e.code === 'KeyE') pararComer();
@@ -559,10 +841,11 @@ const Mundo = (() => {
     function blocoSobMouse(ev) {
         const r = cv.getBoundingClientRect();
         mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
-        const cam = camera();
-        return { x: Math.floor((mouse.x + cam.x) / TAM), y: Math.floor((mouse.y + cam.y) / TAM) };
+        return alvoMouse();
     }
-    function pararMinerar() { if (segurando) { segurando = false; minerandoEm = null; sock.emit('mundo_minerar', { alvo: null }); } }
+    let timerGolpe = null;
+    function pararGolpe() { clearInterval(timerGolpe); timerGolpe = null; }
+    function pararMinerar() { pararGolpe(); if (segurando) { segurando = false; minerandoEm = null; sock.emit('mundo_minerar', { alvo: null }); } }
 
     $(document).on('mousedown', '#mundo-canvas', ev => {
         if (!ativo || !mapa) return;
@@ -571,13 +854,21 @@ const Mundo = (() => {
         const b = blocoSobMouse(ev);
         if (ev.button === 2) { sock.emit('mundo_usar', { x: b.x, y: b.y, item: itemSel }); return; }
         if (ev.button !== 0) return;
+        const mob = mobSobMouse();
+        if (mob) {   // clique num adversário: vai até ele e bate enquanto segurar
+            segurando = true; minerandoEm = null;
+            pararGolpe();
+            const bater = () => { const p = meuJogador(); if (p && Math.max(Math.abs(p.alvo.x - mob.x), Math.abs(p.alvo.y - mob.y)) > 1) { const m = mobs.get(mob.id); if (m) sock.emit('mundo_minerar', { alvo: m.alvo }); } else sock.emit('mundo_atacar', { id: mob.id }); };
+            bater(); timerGolpe = setInterval(bater, 250);
+            return;
+        }
         segurando = true; minerandoEm = b;
         sock.emit('mundo_minerar', { alvo: b, item: itemSel });
     });
     $(document).on('mousemove', '#mundo-canvas', ev => {
         if (!ativo || !mapa) return;
         const b = blocoSobMouse(ev);
-        if (segurando && (b.x !== minerandoEm?.x || b.y !== minerandoEm?.y)) { minerandoEm = b; sock.emit('mundo_minerar', { alvo: b, item: itemSel }); }
+        if (segurando && !timerGolpe && (b.x !== minerandoEm?.x || b.y !== minerandoEm?.y)) { minerandoEm = b; sock.emit('mundo_minerar', { alvo: b, item: itemSel }); }
     });
     $(document).on('mouseleave', '#mundo-canvas', () => { mouse = null; pararMinerar(); });
     window.addEventListener('mouseup', () => { if (ativo) pararMinerar(); });

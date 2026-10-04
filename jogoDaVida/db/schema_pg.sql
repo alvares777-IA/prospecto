@@ -678,7 +678,8 @@ INSERT INTO tipo_evento (codigo, descricao) VALUES
   ('ACEITOU_PACTO',   'Aceitou um pedido de socorro'),
   ('CUMPRIU_PACTO',   'Aceitou o socorro e ajudou'),
   ('TENTOU_CUMPRIR',  'Aceitou o socorro, foi em direção, não chegou a tempo'),
-  ('ROMPEU_PACTO',    'Aceitou o socorro e não se moveu')
+  ('ROMPEU_PACTO',    'Aceitou o socorro e não se moveu'),
+  ('PROTEGEU_ALIADO', 'Derrubou um adversário que atacava outro jogador')
 ON CONFLICT (codigo) DO NOTHING;
 
 INSERT INTO eixo_destino (codigo, nome, pontos_min, pontos_max) VALUES
@@ -697,7 +698,8 @@ INSERT INTO regra_destino (codigo, eixo, tipo_evento, peso, janela_seg,
   ('IGNORAR_SOCORRO',  'CONFIABILIDADE', 'IGNOROU',        -4, 1800, 5, 'N', 1),
   ('CUMPRIR_PACTO',    'CONFIABILIDADE', 'CUMPRIU_PACTO',  10, 1800, 3, 'S', 1),
   ('TENTAR_CUMPRIR',   'CONFIABILIDADE', 'TENTOU_CUMPRIR',  4, 1800, 3, 'S', 1),
-  ('ROMPER_PACTO',     'CONFIABILIDADE', 'ROMPEU_PACTO',  -15, 3600, 5, 'N', 1)
+  ('ROMPER_PACTO',     'CONFIABILIDADE', 'ROMPEU_PACTO',  -15, 3600, 5, 'N', 1),
+  ('PROTEGER_ALIADO',  'SOLIDARIEDADE',  'PROTEGEU_ALIADO',  7, 1800, 4, 'S', 1)
 ON CONFLICT (codigo) DO NOTHING;
 
 INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
@@ -708,7 +710,13 @@ INSERT INTO parametro (escopo, escopo_id, chave, valor) VALUES
   ('global', NULL, 'mundo_valor_minerio',       5),
   ('global', NULL, 'mundo_valor_comida',        2),
   ('global', NULL, 'mundo_valor_madeira',       1),
-  ('global', NULL, 'mundo_valor_pedra',         1)
+  ('global', NULL, 'mundo_valor_pedra',         1),
+  ('global', NULL, 'mundo_vida_jogador',       10),  -- vida máxima do jogador
+  ('global', NULL, 'mundo_mob_vida_pct',      100),  -- vida dos adversários (% do base: zumbi 4, esqueleto 3, soldado 6)
+  ('global', NULL, 'mundo_mob_vel_pct',       100),  -- velocidade dos adversários (% do base; 200 = o dobro)
+  ('global', NULL, 'mundo_mob_dano_pct',      100),  -- dano dos adversários (% do base: 1, 1 e 2)
+  ('global', NULL, 'mundo_mob_qtd',             9),  -- adversários ao abrir o mundo
+  ('global', NULL, 'mundo_mob_max',            12)   -- teto de adversários (nascem 1 a cada 25s)
 ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 
 -- A porta do mundo no catálogo. resposta = meta PESSOAL de pontos.

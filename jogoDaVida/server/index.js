@@ -349,6 +349,7 @@ io.on('connection', (socket) => {
     socket.on('mundo_input',   noMundo((w, d) => mundo.input(w.sessaoId, w.ordem, w.jogadorId, d.dx, d.dy)));
     socket.on('mundo_minerar', noMundo((w, d) => mundo.minerar(w.sessaoId, w.ordem, w.jogadorId, d.alvo || null, d.item)));
     socket.on('mundo_usar',    noMundo((w, d) => mundo.usar(w.sessaoId, w.ordem, w.jogadorId, d)));
+    socket.on('mundo_atacar',  noMundo((w, d) => mundo.atacar(w.sessaoId, w.ordem, w.jogadorId, d.id)));
     socket.on('mundo_comer',   noMundo(w => mundo.comer(w.sessaoId, w.ordem, w.jogadorId)));
     socket.on('mundo_comer_segurar', noMundo((w, d) => mundo.segurarComer(w.sessaoId, w.ordem, w.jogadorId, !!d.ativo)));
     socket.on('mundo_doar',    noMundo((w, d) => mundo.doar(w.sessaoId, w.ordem, w.jogadorId, d.para, d.item, d.modo)));
