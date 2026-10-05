@@ -71,11 +71,23 @@
 
     <!-- 2. CRIAR OU ENTRAR NUMA SALA -->
     <section id="tela-sala-escolha" class="d-none">
-      <h1 class="h4 mb-4">Onde você quer jogar?</h1>
+      <h1 class="h4 mb-3">Onde você quer jogar?</h1>
 
-      <button id="btn-criar" class="btn btn-primary w-100 mb-4">Criar uma sala nova</button>
+      <div class="fase-portas mb-2">
+        <button id="btn-criar" class="hall-porta hall-porta-criar" type="button" title="Criar uma sala nova">
+          <span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>
+          <span class="hall-porta-placa">NOVA SALA</span>
+        </button>
+      </div>
+      <p class="text-secondary small text-center mb-4">a porta verde cria uma sala nova</p>
 
-      <div class="divisor mb-4"><span>ou entrar na sala de um amigo</span></div>
+      <div class="divisor mb-3"><span>ou entre numa sala recente</span></div>
+
+      <div id="salas-recentes-portas" class="fase-portas mb-4">
+        <span class="text-secondary small">carregando…</span>
+      </div>
+
+      <div class="divisor mb-3"><span>ou digite o código</span></div>
 
       <div class="d-flex gap-2">
         <input type="text" id="campo-codigo" class="form-control text-uppercase"

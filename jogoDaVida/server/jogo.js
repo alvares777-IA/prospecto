@@ -734,7 +734,8 @@ export async function parametrosMundo(sessaoId, jogadorId) {
         `SELECT k, param(k, $1, $2) AS v FROM unnest($3::text[]) AS k`,
         [st.enigmaId, sessaoId, chaves],
     );
-    const p = Object.fromEntries(r.rows.map(x => [x.k, Number(x.v)]));
+    // parâmetro ausente vem NULL: vira undefined (cai no padrão), não 0
+    const p = Object.fromEntries(r.rows.map(x => [x.k, x.v == null ? undefined : Number(x.v)]));
     const meta = Number((await pool.query(`SELECT resposta FROM enigma WHERE id = $1`, [st.enigmaId])).rows[0].resposta);
     return {
         porta: st.porta,

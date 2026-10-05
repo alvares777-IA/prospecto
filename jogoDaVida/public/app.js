@@ -274,15 +274,44 @@ function continuar() {
         socket.emit('entrar_sala', payloadJogador({ codigo: estado.salaAlvo }));
     } else {
         trocarTela('#tela-sala-escolha');
+        carregarSalasRecentes();
         $('#campo-codigo').trigger('focus');
     }
+}
+
+function entrarNaSala(codigo) {
+    conectar();
+    socket.emit('entrar_sala', payloadJogador({ codigo }));
 }
 
 function entrarNaSalaDigitada() {
     const codigo = $('#campo-codigo').val().trim().toUpperCase();
     if (!codigo) return mostrar('#erro-sala', 'Digite o código da sala.');
-    conectar();
-    socket.emit('entrar_sala', payloadJogador({ codigo }));
+    entrarNaSala(codigo);
+}
+
+// Portas das 10 salas abertas mais recentes — clicar entra direto nelas.
+async function carregarSalasRecentes() {
+    const $portas = $('#salas-recentes-portas').empty();
+    try {
+        const r = await fetch('/salas-recentes');
+        if (!r.ok) throw new Error('status ' + r.status);
+        const { salas } = await r.json();
+        if (!salas || !salas.length) {
+            $portas.html('<span class="text-secondary small">nenhuma sala aberta no momento</span>');
+            return;
+        }
+        for (const s of salas) {
+            const $p = $('<button class="hall-porta" type="button">')
+                .attr('title', s.estado === 'em_jogo' ? `sala ${s.codigo} — em jogo` : `sala ${s.codigo} — aguardando`);
+            $('<span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>').appendTo($p);
+            $('<span class="hall-porta-placa">').text(s.codigo).appendTo($p);
+            $p.on('click', () => entrarNaSala(s.codigo));
+            $portas.append($p);
+        }
+    } catch (e) {
+        $portas.html('<span class="text-danger small">falha ao carregar salas recentes</span>');
+    }
 }
 
 // Cria o socket e registra os ouvintes uma vez.

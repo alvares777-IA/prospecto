@@ -135,6 +135,8 @@ body { transition: background-color .4s ease; }
 }
 .hall-porta-saida .hall-porta-folha { background: linear-gradient(90deg, #4a5568, #64748b); border-color: #2d3748; }
 .hall-porta-saida .hall-porta-placa { color: #86efac; }
+.hall-porta-criar .hall-porta-folha { background: linear-gradient(90deg, #15803d, #22c55e); border-color: #14532d; }
+.hall-porta-criar .hall-porta-placa { color: #bbf7d0; font-weight: 700; }
 .hall-doacao {
     position: absolute; right: 10px; top: 8px; font-size: 22px; line-height: 1;
     background: none; border: 1px solid #1e2a45; border-radius: 8px; padding: 2px 6px; cursor: pointer;

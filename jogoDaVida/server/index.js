@@ -46,6 +46,15 @@ app.get('/catalogo', async (_req, res, next) => {
     }
 });
 
+app.get('/salas-recentes', async (_req, res, next) => {
+    try {
+        const salas = await persistencia.salasRecentes(10);
+        res.json({ salas });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // O link de uma sala é servido pelo mesmo index.html; o cliente lê o código
 // da URL e já entra pedindo nome + figura.
 app.get('/sala/:codigo', (_req, res) => {

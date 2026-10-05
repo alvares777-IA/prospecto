@@ -30,6 +30,19 @@ export async function salaInfo(codigo) {
     return r.rows[0] ? { sessaoId: r.rows[0].id, estado: r.rows[0].estado } : null;
 }
 
+// As N salas abertas mais recentes (criadas por último), para a tela de
+// escolha mostrar como portas clicáveis. Encerrada nunca aparece aqui.
+export async function salasRecentes(limite = 10) {
+    const r = await pool.query(
+        `SELECT codigo, estado, dt_abertura FROM sessao
+          WHERE dt_encerramento IS NULL
+          ORDER BY dt_abertura DESC
+          LIMIT $1`,
+        [limite],
+    );
+    return r.rows;
+}
+
 // Marca a sessão como encerrada (game over da sala).
 export async function encerrarSessao(sessaoId) {
     await pool.query(

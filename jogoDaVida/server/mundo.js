@@ -133,7 +133,7 @@ function obterMundo(sessaoId, ordem, params) {
             tique: 0,
             mobs: new Map(), flechas: [], proxMob: 1,
         };
-        for (let i = 0; i < cmb(m).qtdInicial; i++) gerarMob(m, TIPOS_MOB[i % 3], 12);
+        for (let i = 0; i < cmb(m).qtdInicial; i++) gerarMob(m, TIPOS_MOB[i % 3], 8);
         mundos.set(k, m);
     }
     m.params = params;
@@ -847,7 +847,7 @@ function passoMobs(m) {
         }
     }
 
-    if (m.tique % SPAWN_TIQUES === 0 && m.mobs.size < cmb(m).qtdMax) gerarMob(m, TIPOS_MOB[Math.floor(Math.random() * 3)], 12);
+    if (m.tique % SPAWN_TIQUES === 0 && m.mobs.size < cmb(m).qtdMax) gerarMob(m, TIPOS_MOB[Math.floor(Math.random() * 3)], 10);
 }
 
 function enviarEu(m, j) {
