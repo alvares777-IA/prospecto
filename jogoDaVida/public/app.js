@@ -897,10 +897,10 @@ function renderPresentes(lista) {
     const $ul = $('#lista-presentes').empty();
     for (const p of lista) {
         const av = avatarPorCodigo(p.avatar_codigo);
-        const sou = socket && p.socketId === socket.id ? ' (você)' : '';
-        const $li = $('<li class="d-flex align-items-center gap-2 mb-1">');
-        $('<img width="20" height="20" alt="">').attr('src', av ? av.arquivo : '').appendTo($li);
-        $('<span>').text(p.nome + sou).appendTo($li);
+        const sou = socket && p.socketId === socket.id;
+        const $li = $('<div class="hall-jogador">').toggleClass('eu', !!sou);
+        $('<span class="hall-nome">').text(p.nome + (sou ? ' (você)' : '')).appendTo($li);
+        $('<img alt="">').attr('src', av ? av.arquivo : '').appendTo($li);
         $ul.append($li);
     }
     renderRosters();
