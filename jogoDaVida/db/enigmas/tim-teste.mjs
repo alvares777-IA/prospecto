@@ -4,7 +4,8 @@
 //   1) sem nenhuma peça do jogador, o desafio NÃO pode se resolver sozinho;
 //   2) existe pelo menos uma forma de resolver com as peças da caixa;
 //   3) ventilador sem bateria não resolve (a bateria é necessária).
-//   node jogoDaVida/db/enigmas/tim-teste.mjs
+//   node jogoDaVida/db/enigmas/tim-teste.mjs                 (todas)
+//   node jogoDaVida/db/enigmas/tim-teste.mjs --fase 17-26   (só uma faixa)
 // Os dois arquivos são scripts de navegador; no Node (projeto "type": "module")
 // eles se registram em globalThis, igual fariam em window.
 await import('./tim-fisica.js');
@@ -13,11 +14,15 @@ const F = globalThis.TimFisica, NIVEIS = globalThis.TIM_NIVEIS;
 
 const faixa = (a, b, p) => { const r = []; for (let v = a; v <= b; v += p) r.push(v); return r; };
 const ok = (n, pecas) => F.simular(n, pecas).resolvido;
+// --fase N ou --fase A-B: verifica só essas fases (a suíte inteira demora bastante)
+const argFase = process.argv.includes('--fase') ? process.argv[process.argv.indexOf('--fase') + 1] : null;
+const [faseDe, faseAte] = !argFase ? [1, Infinity] : argFase.includes('-') ? argFase.split('-').map(Number) : [Number(argFase), Number(argFase)];
+const quer = n => n >= faseDe && n <= faseAte;
 let falhas = 0;
 const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg); if (!cond) falhas++; };
 
 // 1 — Sopro certeiro: ventilador (com bateria) na laje, atrás da bola
-{
+if (quer(1)) {
     const n = NIVEIS[0];
     console.log('1. ' + n.titulo);
     relato(!ok(n, []), 'sem peças não resolve');
@@ -27,7 +32,7 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 }
 
 // 2 — Por cima do muro: rampa + trampolim
-{
+if (quer(2)) {
     const n = NIVEIS[1];
     console.log('2. ' + n.titulo);
     relato(!ok(n, []), 'sem peças não resolve');
@@ -45,7 +50,7 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 }
 
 // 3 — Balão preso: ventilador (com bateria) + rampa como "teto guia"
-{
+if (quer(3)) {
     const n = NIVEIS[2];
     console.log('3. ' + n.titulo);
     relato(!ok(n, []), 'sem peças não resolve');
@@ -67,7 +72,7 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 // pela correia move a esteira 1; ela leva a bola 2 até o rato 2 → esteira 2 →
 // bola 3 → rato 3 → esteira 3, que derruba a bola de basquete no cano até o cesto.
 // As rampas da caixa são sobra (como no original) e não entram na solução.
-{
+if (quer(4)) {
     const n = NIVEIS[3];
     console.log('4. ' + n.titulo);
     const rato = (id, x, y) => ({ tipo: 'rato', id, x, y });
@@ -99,7 +104,7 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 // no fole fixo, tesoura fixa); a de cima precisa de um fole soprando ela contra a
 // engrenagem (que gira porque a bola de boliche cai na gaiola do rato); a de baixo
 // precisa de fole + tesoura. Peças encavaladas em bolas/bexigas não valem.
-{
+if (quer(5)) {
     const n = NIVEIS[4];
     console.log('5. ' + n.titulo);
     const valida = p => !p.some(q => F.sobrepoe(q, n, p));
@@ -134,7 +139,7 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 // 6 — Espelho: o lado esquerdo já funciona sozinho; no direito o jogador monta a
 // gaiola + bola de basquete + correia, e a gaiola precisa estar ESPELHADA (a roda
 // gira ao contrário e a esteira leva a bola para a esquerda, até o cano).
-{
+if (quer(6)) {
     const n = NIVEIS[5];
     console.log('6. ' + n.titulo);
     const valida = p => !p.some(q => F.sobrepoe(q, n, p));
@@ -161,11 +166,14 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
 // Fases 7 a 16: cada uma resolve com a montagem de referência (só posições da grade,
 // sem encavalar), não resolve sem peças, e cada peça da montagem é necessária.
 function fase(i, solucao, extras = {}) {
+    if (!quer(i + 1)) return;
     const n = NIVEIS[i];
     console.log(`${i + 1}. ${n.titulo}`);
     const valida = p => !p.some(q => F.sobrepoe(q, n, p));
     relato(!ok(n, []), 'sem peças não resolve');
     relato(valida(solucao) && ok(n, solucao), 'a montagem de referência resolve');
+    // a interface encaixa as peças na grade de 10 px: a solução precisa ser montável de verdade
+    relato(solucao.every(p => p.x == null || (p.x % 10 === 0 && p.y % 10 === 0)), 'as peças da montagem estão na grade de 10 px');
     // a caixa tem exatamente as peças da montagem (fio/correia/bateria contam como peças)
     const conta = {};
     for (const p of solucao) conta[p.tipo] = (conta[p.tipo] || 0) + 1;
@@ -281,6 +289,366 @@ fase(7, [{ tipo: 'luva', x: 500, y: 140, dir: -1 }, { tipo: 'gangorra', x: 250, 
         }) >= 20,
     });
 }
+
+// Fases 17 em diante (lote 1 dos outros desafios do TIM original): montagem de referência
+// de cada uma; o helper fase() confere sem peças, a solução, a caixa e cada peça necessária.
+fase(16, [   // Uma bola em cada pote
+    { tipo: 'gangorra', x: 270, y: 370 },
+    { tipo: 'gangorra', x: 370, y: 370, espelho: true },
+]);
+fase(17, [   // Anel de fogo
+    { tipo: 'rampa', x: 90, y: 300, ang: 20, len: 120 },
+    { tipo: 'lupa', x: 300, y: 320 },
+]);
+fase(18, [   // Derrube-a
+    { tipo: 'esteira', id: 'e1', x: 150, y: 160, dir: 1, ang: 0 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'rampa', x: 370, y: 100, ang: 30, len: 120 },
+]);
+fase(19, [   // Guardar as bolas de basquete
+    { tipo: 'esteira', id: 'e1', x: 540, y: 200, ang: 0, dir: -1 },
+    { tipo: 'rato', id: 'r1', x: 420, y: 250 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'rampa', x: 450, y: 300, ang: -30, len: 120 },
+]);
+fase(20, [   // Disparar o canhão
+    { tipo: 'esteira', id: 'e1', x: 160, y: 130, dir: 1, ang: 0 },
+    { tipo: 'rato', id: 'r1', x: 340, y: 120 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+]);
+fase(21, [   // Uiiii!
+    { tipo: 'rampa', len: 120, x: 70, y: 200, ang: 30 },
+    { tipo: 'trampolim', x: 180, y: 330, ang: -25 },
+]);
+fase(22, [   // Quica, quica, quica
+    { tipo: 'trampolim', x: 600, y: 370, ang: -15 },
+    { tipo: 'trampolim', x: 420, y: 290, ang: -10 },
+]);
+fase(23, [   // Dentro das paredes
+    { tipo: 'esteira', id: 'e1', x: 320, y: 130, ang: 0, dir: 1 },
+    { tipo: 'moinho', id: 'm1', x: 220, y: 270 },
+    { tipo: 'correia', id: 'c1', de: 'm1', para: 'e1' },
+    { tipo: 'trampolim', x: 420, y: 290, ang: -15 },
+]);
+fase(24, [   // Exercitar os quatro ratos
+    { tipo: 'rampa', x: 260, y: 300, ang: -20, len: 120 },
+    { tipo: 'gangorra', x: 400, y: 370, espelho: true },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'correia', id: 'c2', de: 'r2', para: 'e2' },
+]);
+fase(25, [   // Meio fora de ordem
+    { tipo: 'rampa', x: 80, y: 80, ang: 10, len: 120 },
+    { tipo: 'rampa', x: 220, y: 80, ang: 25, len: 120 },
+    { tipo: 'rampa', x: 120, y: 300, ang: 30, len: 120 },
+]);
+
+// Lote 2: revólver, caixa-surpresa e detonador.
+fase(26, [   // Bexigas em perigo
+    { tipo: 'balao', x: 320, y: 170 },
+    { tipo: 'balao', x: 320, y: 320 },
+]);
+fase(27, [   // Fazendo umas explosões
+    { tipo: 'gangorra', x: 100, y: 370, espelho: true },
+    { tipo: 'dinamite', id: 'x1', x: 540, y: 160 },
+    { tipo: 'dinamite', id: 'x2', x: 540, y: 290 },
+    { tipo: 'fio', id: 'f1', de: 'd1', para: 'x1' },
+    { tipo: 'fio', id: 'f2', de: 'd1', para: 'x2' },
+]);
+fase(28, [   // Estourando bexigas na Lua
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'g1' },
+    { tipo: 'arma', x: 440, y: 80, dir: -1 },
+    { tipo: 'tesoura', x: 540, y: 200, dir: 1, ang: 90 },
+]);
+fase(29, [   // João diz: Oi, Bob!
+    { tipo: 'surpresa', id: 'j1', x: 180, y: 360, ang: 10 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'j1' },
+    { tipo: 'correia', id: 'c2', de: 'r2', para: 'j2' },
+]);
+fase(30, [   // Explodir tudo
+    { tipo: 'arma', x: 70, y: 200, dir: 1 },
+    { tipo: 'arma', x: 440, y: 330, dir: 1 },
+]);
+fase(31, [   // Tiro ao alvo
+    { tipo: 'arma', x: 90, y: 140, dir: 1 },
+    { tipo: 'arma', x: 500, y: 300, dir: -1 },
+]);
+fase(32, [   // Salva de cinco tiros
+    { tipo: 'arma', x: 250, y: 130, dir: 1 },
+    { tipo: 'arma', x: 230, y: 250, dir: -1 },
+]);
+
+// Lote 3: eletricidade (tomada, gerador, motor, painel solar, lâmpada) e engrenagens encostadas.
+fase(33, [   // Sorria!
+    { tipo: 'trampolim', x: 130, y: 330, ang: 15 },
+    { tipo: 'fio', id: 'f1', de: 'i1', para: 'mt' },
+    { tipo: 'correia', id: 'c1', de: 'mt', para: 'gs' },
+]);
+fase(34, [   // Indo para o buraco
+    { tipo: 'rampa', x: 60, y: 150, ang: 40, len: 120 },
+    { tipo: 'interruptor', id: 'i1', x: 330, y: 380 },
+    { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' },
+]);
+fase(35, [   // Bola curtinha
+    { tipo: 'painel', id: 'p1', x: 260, y: 290 },
+    { tipo: 'fio', id: 'f1', de: 'p1', para: 'v1' },
+    { tipo: 'ventilador', id: 'v1', x: 360, y: 320, dir: 1 },
+]);
+fase(36, [   // Geradores e motores
+    { tipo: 'moinho', id: 'm1', x: 200, y: 320 },
+    { tipo: 'gerador', id: 'g1', x: 280, y: 370 },
+    { tipo: 'correia', id: 'c1', de: 'm1', para: 'g1' },
+    { tipo: 'fio', id: 'f1', de: 'g1', para: 'mt' },
+    { tipo: 'correia', id: 'c2', de: 'mt', para: 'e1' },
+]);
+fase(37, [   // Pondo as engrenagens em movimento
+    { tipo: 'painel', id: 'p1', x: 300, y: 200, ang: 90 },
+    { tipo: 'fio', id: 'f1', de: 'p1', para: 'mt' },
+    { tipo: 'engrenagem', id: 'g1', x: 410, y: 300, r: 22 },
+    { tipo: 'engrenagem', id: 'g2', x: 450, y: 270, r: 22 },
+]);
+fase(38, [   // Pop! vai a doninha
+    { tipo: 'engrenagem', id: 'g1', x: 180, y: 270, r: 22 },
+    { tipo: 'correia', id: 'c1', de: 'g1', para: 'gb' },
+    { tipo: 'engrenagem', id: 'g2', x: 360, y: 270, r: 22 },
+    { tipo: 'correia', id: 'c2', de: 'g2', para: 'j1' },
+]);
+
+// Lote 4: vela e foguete (e lâmpada + lupa).
+fase(39, [   // Dez, nove, oito... ignição!
+    { tipo: 'gangorra', x: 110, y: 370, espelho: true },
+    { tipo: 'trampolim', x: 370, y: 260, ang: 20 },
+]);
+fase(40, [   // Lançar todos os foguetes
+    { tipo: 'rampa', x: 70, y: 300, ang: 25, len: 120 },
+    { tipo: 'lupa', x: 270, y: 250 },
+    { tipo: 'lupa', x: 370, y: 250 },
+]);
+fase(41, [   // Decolagem
+    { tipo: 'foguete', x: 420, y: 290 },
+    { tipo: 'vela', x: 440, y: 300 },
+    { tipo: 'lupa', x: 370, y: 300 },
+]);
+fase(42, [   // Pop, pop, pop, pop e... pop!
+    { tipo: 'vela', x: 200, y: 260 },
+    { tipo: 'lupa', x: 130, y: 260 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+]);
+fase(43, [   // Alerta vermelho!
+    { tipo: 'lupa', x: 250, y: 180 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'rampa', x: 90, y: 280, ang: 20, len: 120 },
+]);
+fase(44, [   // Para o alto e avante!
+    { tipo: 'esteira', id: 'e1', x: 150, y: 160, dir: 1, ang: 0 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'gangorra', x: 330, y: 370, espelho: true },
+]);
+fase(45, [   // Acenda meu fogo
+    { tipo: 'engrenagem', id: 'g1', x: 170, y: 330, r: 22 },
+    { tipo: 'lupa', x: 570, y: 180 },
+]);
+
+// Lotes 5–6: corda, polia, balde, gancho (tesoura acionada corta corda; chama queima).
+fase(46, [   // Salve as bexigas
+    { tipo: 'corda', id: 'k1', de: 'b1', para: 'b2', polias: ['q1'] },
+    { tipo: 'corda', id: 'k2', de: 'b3', para: 'b4', polias: ['q2'] },
+]);
+fase(47, [   // Bang, bang, bang
+    { tipo: 'corda', id: 'k1', de: 'm1', para: 'a2' },
+    { tipo: 'corda', id: 'k2', de: 'm2', para: 'a3' },
+]);
+fase(48, [   // Desça todos os baldes
+    { tipo: 'tesoura', x: 170, y: 120, dir: -1, ang: 0 },
+    { tipo: 'rampa', x: 340, y: 100, ang: 20, len: 120 },
+    { tipo: 'tesoura', x: 440, y: 120, dir: 1, ang: 0 },
+]);
+fase(49, [   // Soque o balde
+    { tipo: 'gangorra', x: 120, y: 370, espelho: true },
+    { tipo: 'luva', x: 410, y: 250, dir: 1 },
+]);
+fase(50, [   // Pesando a situação
+    { tipo: 'polia', id: 'q1', x: 200, y: 50 },
+    { tipo: 'corda', id: 'k1', de: 'bA', para: 'bB', polias: ['q1', 'h1'] },
+    { tipo: 'rampa', x: 100, y: 80, ang: 20, len: 120 },
+]);
+fase(51, [   // Estoure duas bexigas
+    { tipo: 'polia', id: 'q1', x: 300, y: 370 },
+    { tipo: 'corda', id: 'k1', de: 'b1', para: 'w1', polias: ['q1', 'h1'] },
+    { tipo: 'corda', id: 'k2', de: 'b2', para: 'w2', polias: ['q1', 'h2'] },
+]);
+fase(52, [   // Busque o balde
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'correia', id: 'c2', de: 'r2', para: 'e2' },
+    { tipo: 'tesoura', x: 90, y: 100, dir: -1, ang: 0 },
+]);
+fase(53, [   // Feliz segundo aniversário
+    { tipo: 'trampolim', x: 60, y: 330, ang: 5 },
+    { tipo: 'luva', x: 480, y: 170, dir: 1 },
+]);
+fase(54, [   // Desça o balde
+    { tipo: 'painel', id: 'p1', x: 330, y: 100 },
+    { tipo: 'fio', id: 'f1', de: 'p1', para: 'mt' },
+    { tipo: 'correia', id: 'c1', de: 'mt', para: 'e1' },
+]);
+fase(55, [   // Lançando luz
+    { tipo: 'corda', id: 'k2', de: 'L2', para: 'g1', pontaPara: 1 },
+    { tipo: 'corda', id: 'k1', de: 'L1', para: 'm2' },
+    { tipo: 'corda', id: 'k3', de: 'L3', para: 'm3' },
+    { tipo: 'corda', id: 'k4', de: 'L4', para: 'm4', polias: ['h3'] },
+]);
+fase(56, [   // O poço de madeira
+    { tipo: 'tesoura', x: 220, y: 360, dir: -1, ang: 0 },
+    { tipo: 'moinho', id: 'mo', x: 120, y: 80 },
+    { tipo: 'correia', id: 'c1', de: 'mo', para: 'gr' },
+    { tipo: 'fio', id: 'f1', de: 'gr', para: 'mt' },
+]);
+
+// Lote 7: personagens (Mort, Pokey, Bob no aquário, Kelly na bicicleta, gaiola).
+fase(57, [   // Mandando o Mort para casa
+    { tipo: 'rampa', x: 220, y: 360, ang: 30, len: 120 },
+]);
+fase(58, [   // Ajude o Pokey a voltar para casa
+    { tipo: 'aquario', id: 'iscar', x: 600, y: 320 },
+    { tipo: 'rampa', x: 400, y: 320, ang: -25, len: 120 },
+]);
+fase(59, [   // Ponha o Mort na prisão
+    { tipo: 'tesoura', x: 310, y: 150, dir: -1, ang: 0 },
+]);
+fase(60, [   // Quebre o aquário do Bob
+    { tipo: 'luva', x: 120, y: 190, dir: 1 },
+    { tipo: 'lupa', x: 430, y: 190 },
+]);
+fase(61, [   // Duelo no aquário
+    { tipo: 'boliche', id: 's1', x: 180, y: 370 },
+    { tipo: 'balde', id: 's2', x: 460, y: 370 },
+]);
+fase(62, [   // Liberte o pobre Pokey
+    { tipo: 'rampa', x: 100, y: 70, ang: 15, len: 120 },
+]);
+fase(63, [   // Gato-pulta
+    { tipo: 'gangorra', x: 270, y: 370 },
+]);
+fase(64, [   // Negócio de macaco
+    { tipo: 'corda', id: 'k1', de: 'gl', para: 'kelly', polias: ['q1'] },
+]);
+fase(65, [   // Prenda o gato Pokey
+    { tipo: 'tesoura', x: 260, y: 370, dir: -1, ang: 0 },
+]);
+fase(66, [   // Tire o Mort da caixa
+    { tipo: 'dinamite', id: 'x1', x: 250, y: 360 },
+    { tipo: 'fio', id: 'f1', de: 'd1', para: 'x1' },
+]);
+fase(67, [   // Salve o Mort do gato
+    { tipo: 'esteira', id: 'e1', x: 410, y: 340, ang: -55, dir: 1 },
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+]);
+fase(68, [   // Um rato em casa
+    { tipo: 'ventilador', id: 'v1', x: 610, y: 310, dir: -1, ang: -10 },
+    { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' },
+]);
+fase(69, [   // Gira, gira, gira... pop, pop, pop
+    { tipo: 'engrenagem', id: 'p1', x: 200, y: 280, r: 22 },
+    { tipo: 'correia', id: 'c1', de: 'g1', para: 'g2' },
+    { tipo: 'engrenagem', id: 'p2', x: 440, y: 300, r: 22 },
+]);
+fase(70, [   // Basquete na Lua
+    { tipo: 'surpresa', id: 'j1', x: 230, y: 370, ang: 25 },
+    { tipo: 'correia', id: 'c1', de: 'kelly', para: 'j1' },
+]);
+fase(71, [   // Exercite a macaca Kelly
+    { tipo: 'foguete', id: 'fg', x: 50, y: 290, ang: 90 },
+]);
+
+// Lote 8: os desafios que juntam tudo (e os que tinham ficado para o fim).
+fase(72, [   // Atravessando o vão
+    { tipo: 'rampa', x: 240, y: 190, ang: 0, len: 120 },
+    { tipo: 'rampa', x: 440, y: 200, ang: 0, len: 120 },
+]);
+fase(73, [   // Espante os ratos
+    { tipo: 'pokey', id: 'gato', x: 320, y: 320 },
+]);
+fase(74, [   // Ponha a gaiola no buraco
+    { tipo: 'tesoura', x: 210, y: 100, dir: -1, ang: 0 },
+    { tipo: 'rampa', x: 240, y: 230, ang: 30, len: 120 },
+]);
+fase(75, [   // Ponha as bolas nos cestos
+    { tipo: 'correia', id: 'k1', de: 'r1', para: 'e1' },
+    { tipo: 'gangorra', x: 220, y: 370 },
+]);
+fase(76, [   // Salve o esquadrão do Bob
+    { tipo: 'rampa', x: 150, y: 290, ang: -30, len: 120 },
+    { tipo: 'boliche', id: 's1', x: 530, y: 370 },
+]);
+fase(77, [   // Trocando o aquário do Bob
+    { tipo: 'rampa', x: 180, y: 130, ang: 15, len: 120 },
+    { tipo: 'rampa', x: 320, y: 230, ang: 15, len: 120 },
+]);
+fase(78, [   // Salve o peixe Bob
+    { tipo: 'dinamite', id: 'x1', x: 360, y: 240 },
+    { tipo: 'fio', id: 'f1', de: 'd1', para: 'x1' },
+]);
+fase(79, [   // Juntando as bolas
+    { tipo: 'correia', id: 'c1', de: 'r1', para: 'e1' },
+    { tipo: 'trampolim', x: 70, y: 330, ang: 20 },
+]);
+fase(80, [   // Jogue um set
+    { tipo: 'dinamite', id: 'x1', x: 210, y: 340 },
+    { tipo: 'fio', id: 'f1', de: 'd1', para: 'x1' },
+]);
+fase(81, [   // Ratoeira
+    { tipo: 'gangorra', x: 200, y: 370, espelho: true },
+]);
+fase(82, [   // Prenda o Mort
+    { tipo: 'ventilador', id: 'v1', x: 140, y: 130, dir: 1 },
+    { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' },
+    { tipo: 'tesoura', x: 330, y: 140, dir: 1, ang: 0 },
+]);
+fase(83, [   // Removendo o padrão
+    { tipo: 'balde', id: 'b1', x: 150, y: 370 },
+    { tipo: 'balde', id: 'b2', x: 420, y: 370 },
+    { tipo: 'balde', id: 'b3', x: 570, y: 370 },
+]);
+fase(84, [   // Abaixe a lança
+    { tipo: 'lupa', x: 150, y: 270 },
+    { tipo: 'tesoura', x: 420, y: 170, dir: 1, ang: 0 },
+]);
+fase(85, [   // Vida de pirata
+    { tipo: 'lupa', x: 230, y: 230 },
+    { tipo: 'dinamite', id: 'x1', x: 300, y: 230 },
+]);
+fase(86, [   // Derrubando o muro
+    { tipo: 'corda', id: 'k1', de: 'lp', para: 'g1', pontaPara: 1 },
+    { tipo: 'lupa', x: 330, y: 290 },
+    { tipo: 'dinamite', id: 'd2', x: 380, y: 250 },
+]);
+fase(87, [   // Deixando a bola cair
+    { tipo: 'arma', x: 190, y: 100, dir: 1 },
+    { tipo: 'corda', id: 'k1', de: 'lp', para: 'bd' },
+    { tipo: 'lupa', x: 250, y: 290 },
+]);
+fase(88, [   // Elimine as bexigas
+    { tipo: 'correia', id: 'c1', de: 'kelly', para: 'g1' },
+    { tipo: 'engrenagem', id: 'p1', x: 240, y: 260, r: 22 },
+    { tipo: 'surpresa', id: 'j1', x: 420, y: 350 },
+    { tipo: 'correia', id: 'c2', de: 'g2', para: 'j1' },
+]);
+fase(89, [   // Estoure todas as bexigas
+    { tipo: 'gangorra', x: 80, y: 370, espelho: true },
+    { tipo: 'correia', id: 'c1', de: 'kelly', para: 'g1' },
+    { tipo: 'engrenagem', id: 'p1', x: 420, y: 250, r: 22 },
+    { tipo: 'correia', id: 'c2', de: 'g2', para: 'e1' },
+]);
+fase(90, [   // Adeus às bexigas
+    { tipo: 'ventilador', id: 'v1', x: 80, y: 130, dir: 1 },
+    { tipo: 'fio', id: 'f1', de: 't1', para: 'v1' },
+    { tipo: 'lupa', x: 340, y: 250 },
+]);
+fase(91, [   // Solte os fogos
+    { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' },
+    { tipo: 'moinho', id: 'mo', x: 220, y: 320 },
+    { tipo: 'correia', id: 'c1', de: 'mo', para: 'gr' },
+    { tipo: 'lupa', x: 330, y: 150 },
+]);
 
 // Painel de ambiente: o padrão (gravidade 1, ar 1) é exatamente a física sem ambiente
 {
