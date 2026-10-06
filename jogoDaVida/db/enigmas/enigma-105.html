@@ -5,8 +5,8 @@
 <title>TIM — jogoDaVida</title>
 <style>
   html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:system-ui,Segoe UI,Arial,sans-serif}
-  body{display:flex;align-items:center;justify-content:center}
-  .tela{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
+  body{display:flex}
+  .tela{margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px}
   h1{font-size:15px;margin:0;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
   .hud{display:flex;gap:18px;font-size:14px;color:#cbd5e1;flex-wrap:wrap;justify-content:center}
   .hud b{color:#e2e8f0}
@@ -39,8 +39,8 @@
   .ambiente b{min-width:92px;color:#fde68a;font-weight:600}
   .ambiente .ico{font-size:15px}
   /* modo livre: escolha do desafio; ✓ = já concluído nesta sala */
-  .seletor{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;max-width:640px;font-size:13px;color:#94a3b8}
-  .seletor button{min-width:38px;padding:4px 8px;background:#1e293b;border:1px solid #334155;font-weight:600}
+  .seletor{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;align-items:center;max-width:640px;font-size:12px;color:#94a3b8}
+  .seletor button{min-width:28px;padding:2px 5px;font-size:12px;background:#1e293b;border:1px solid #334155;font-weight:600}
   .seletor button.feito{background:#14532d;border-color:#22c55e;color:#bbf7d0}
   .seletor button.atual{outline:2px solid #facc15;outline-offset:1px}
 </style>
@@ -220,7 +220,7 @@
     const el = $('seletor');
     el.hidden = !modoLivre;
     if (!modoLivre) return;
-    el.innerHTML = '<span>Escolha o desafio:</span>';
+    el.innerHTML = '<span>Desafio:</span>';
     for (let n = 1; n <= niveis; n++) {
       const b = document.createElement('button');
       const feito = concluidos.has(n);
