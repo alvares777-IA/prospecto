@@ -12,6 +12,7 @@ const estado = {
     apelido: null,
     codigo: null,
     souCriador: false,
+    modo: 'desafios',         // 'desafios' (sequência) | 'livre' (lista de portas) — vem do servidor
     persistido: false,        // a minha entrada já foi gravada no banco?
     jogoIniciado: false,
     jogo: {                   // estado do protótipo de jogo
@@ -50,6 +51,13 @@ window.addEventListener('message', e => {
             try {
                 e.source.postMessage({ tipo: r?.ok ? 'gasto_ok' : 'gasto_negado', pedido: d.motivo, motivo: r?.erro, valor: r?.valor }, location.origin);
             } catch (err) { /* iframe já saiu */ }
+        });
+        return;
+    }
+    // modo livre: o jogo concluiu um nível interno; o servidor grava e devolve a lista
+    if (d.tipo === 'nivel_concluido' && socket && e.source) {
+        socket.emit('nivel_concluido', { nivel: d.nivel, ordem: ordemDoJogoAberto() }, r => {
+            try { e.source.postMessage({ tipo: 'niveis_concluidos', concluidos: r?.concluidos || null }, location.origin); } catch (err) { /* iframe já saiu */ }
         });
         return;
     }
@@ -169,7 +177,12 @@ $(async function () {
     // figura + sala
     $('#btn-continuar').on('click', continuar);
     $('#campo-nome').on('keydown', e => { if (e.key === 'Enter') continuar(); });
-    $('#btn-criar').on('click', () => { conectar(); socket.emit('criar_sala', payloadJogador()); });
+    // nova sala: primeiro pergunta o modo (desafios ou livre)
+    $('#btn-criar').on('click', () => $('#escolha-modo').removeClass('d-none'));
+    $('.btn-modo-jogo').on('click', function () {
+        conectar();
+        socket.emit('criar_sala', payloadJogador({ modo: $(this).data('modo') }));
+    });
     $('#btn-entrar-sala').on('click', entrarNaSalaDigitada);
     $('#campo-codigo').on('keydown', e => { if (e.key === 'Enter') entrarNaSalaDigitada(); });
     $('#btn-copiar').on('click', copiarLink);
@@ -303,7 +316,7 @@ async function carregarSalasRecentes() {
         }
         for (const s of salas) {
             const $p = $('<button class="hall-porta" type="button">')
-                .attr('title', s.estado === 'em_jogo' ? `sala ${s.codigo} — em jogo` : `sala ${s.codigo} — aguardando`);
+                .attr('title', `sala ${s.codigo} — ${s.modo === 'livre' ? 'modo livre' : 'desafios'} — ${s.estado === 'em_jogo' ? 'em jogo' : 'aguardando'}`);
             $('<span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>').appendTo($p);
             $('<span class="hall-porta-placa">').text(s.codigo).appendTo($p);
             $p.on('click', () => entrarNaSala(s.codigo));
@@ -356,7 +369,8 @@ function conectar() {
         $('#campo-msg').trigger('focus');
     });
 
-    socket.on('presenca_confirmada', () => {
+    socket.on('presenca_confirmada', ({ modo }) => {
+        definirModo(modo);
         estado.persistido = true;
         atualizarInicio();
     });
@@ -389,8 +403,43 @@ function conectar() {
     });
     $('#btn-prosseguir').on('click', () => socket.emit('prosseguir'));
 
+    // Modo livre: o "hall" é a lista de todas as portas (rótulo = pergunta).
+    socket.on('lista_livre', dados => {
+        if (!dados) return;
+        definirModo('livre');
+        if (estado.jogo._htmlPendente) {
+            estado.jogo._htmlPendente = false;
+            avisarIframe(true);
+            setTimeout(() => aplicarListaLivre(dados), 1500);
+            return;
+        }
+        aplicarListaLivre(dados);
+    });
+
+    function aplicarListaLivre({ portas, total }) {
+        aplicarHall(null);
+        estado.jogo.total = total;
+        const feitas = portas.filter(p => p.resolvida).length;
+        $('#hall-proxima').text(`modo livre — ${feitas} de ${total} resolvidas`);
+        $('#btn-prosseguir').addClass('d-none');
+        const $l = $('#hall-livre').empty().removeClass('d-none');
+        for (const p of portas) {
+            const rotulo = p.pergunta || `Porta ${p.ordem}`;
+            const $p = $('<button class="hall-porta" type="button">')
+                .attr('title', `${p.resolvida ? '✓ resolvida — ' : ''}${rotulo}${p.nivel ? ' · ' + p.nivel : ''}`)
+                .toggleClass('fase-porta-aberta', p.resolvida)
+                .prop('disabled', estado.jogo.semEnergia)
+                .on('click', () => socket.emit('escolher_porta', { ordem: p.ordem }));
+            $('<span class="hall-porta-folha"><span class="hall-porta-macaneta"></span></span>').appendTo($p);
+            $('<span class="hall-porta-placa">').text((p.resolvida ? '✓ ' : '') + rotulo).appendTo($p);
+            $l.append($p);
+        }
+    }
+
     function aplicarHall(porta) {
         if (!estado.jogo.inicio) estado.jogo.inicio = Date.now();
+        $('#hall-livre').addClass('d-none');
+        $('#btn-prosseguir').removeClass('d-none');
         estado.jogo.noHall = true;
         estado.jogo.fase.ativa = false;
         estado.jogo.fase.ordemAberta = null;
@@ -436,7 +485,9 @@ function conectar() {
         $('#jogo-fase').addClass('d-none');
         $('#jogo-enigma').removeClass('d-none');
         $('#jogo-fim, #btn-jogar-de-novo').addClass('d-none');
-        $('#jogo-porta').text(`Porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`);
+        $('#jogo-porta').text(estado.modo === 'livre'
+            ? `Modo livre · porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`
+            : `Porta ${st.porta} de ${st.total}${st.nivel ? ' · ' + st.nivel : ''}`);
         $('#jogo-aviso').text('');
         $('#resposta-recebida').addClass('d-none').empty();
 
@@ -492,6 +543,7 @@ function conectar() {
         renderRosters();
         feed(`${jogador} chegou na porta ${porta}`);
     });
+    socket.on('porta_resolvida_livre', ({ jogador, porta }) => feed(`${jogador} resolveu a porta ${porta}`));
     socket.on('pediu_ajuda', ({ jogador, socketId, porta }) => {
         estado.jogo.pedidos[socketId] = { jogador, porta };
         estado.jogo.recusei.delete(socketId);
@@ -651,6 +703,15 @@ function conectar() {
     });
 
     socket.on('desistiu', ({ jogador }) => feed(`${jogador} preferiu a resposta do jogo`));
+}
+
+// Modo da sala. No livre, "voltar" leva à lista de jogos, não ao hall de espera.
+function definirModo(modo) {
+    if (!modo) return;
+    estado.modo = modo;
+    const livre = modo === 'livre';
+    $('#rotulo-modo').toggleClass('d-none', !livre);
+    $('.btn-rotulo-voltar').text(livre ? '🚪 Voltar à lista de jogos' : '🚪 Voltar ao hall');
 }
 
 // Entra no tabuleiro do trecho de fase (tipo:'fase' vindo de meu_enigma).

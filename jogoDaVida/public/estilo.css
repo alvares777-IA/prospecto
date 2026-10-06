@@ -196,3 +196,13 @@ body { transition: background-color .4s ease; }
 .fase-portas-hall { border-radius: 0; border-top: 0; padding-top: 6px; }
 .fase-portas-hall .hall-porta-folha { height: 60px; }
 .fase-portas-hall .hall-porta-macaneta { top: 28px; }
+
+/* Modo livre: portas com a pergunta na placa (texto longo, quebra em até 3 linhas) */
+.livre-portas { padding-bottom: 12px; border-radius: 10px; max-height: 70vh; overflow-y: auto; }
+.livre-portas .hall-porta { width: 120px; }
+.livre-portas .hall-porta-folha { height: 80px; }
+.livre-portas .hall-porta-macaneta { top: 38px; }
+.livre-portas .hall-porta-placa {
+    font-weight: 500; letter-spacing: 0; line-height: 1.25; text-align: center; max-width: 120px;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}

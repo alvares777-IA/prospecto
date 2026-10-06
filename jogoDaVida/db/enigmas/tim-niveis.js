@@ -109,6 +109,172 @@
             caixa: { basquete: 1, correia: 1, rato: 1 },
             objetivo: { tipo: 'canos', bolas: [1, 2] },
         },
+        // ── 7 a 16: inspirados nos desafios seguintes do TIM original ("Flip, Flip, Flip",
+        // "Punch Out", "Bouncing over to Mort", "Tilting at Windmills", "Like a Hurricane",
+        // "Lighting a Fuse", "Boom, Boom, Bang", "Climbing a Hill"...), cada vez mais difíceis.
+        {
+            titulo: 'Vira, vira, vira',
+            texto: 'Faça a bola de tênis cair no cesto. Use gangorras: a bola que cai na ponta de cima arremessa a que está na ponta de baixo — e a bala de canhão é bem pesada. ⇋ (F) espelha a gangorra.',
+            bolas: [
+                { tipo: 'bala', x: 100, y: 40 },
+                { tipo: 'basquete', x: 180, y: 367 },   // na altura da ponta baixa de uma gangorra
+                { tipo: 'tenis', x: 550, y: 372 },
+            ],
+            fixas: [
+                { tipo: 'bloco', x: 300, y: 210, w: 20, h: 182 },
+                { tipo: 'cesto', x: 566, y: 346 },
+            ],
+            caixa: { gangorra: 2 },
+            objetivo: { tipo: 'cesto', bola: 2 },
+        },
+        {
+            titulo: 'Nocaute',
+            texto: 'Leve a bola de beisebol até a estrela. A luva de boxe soca para a frente quando uma bola encosta na metade de trás dela (o botão vermelho).',
+            bolas: [
+                { tipo: 'beisebol', x: 210, y: 371 },
+                { tipo: 'bala', x: 450, y: 135 },
+                { tipo: 'basquete', x: 510, y: 40 },
+            ],
+            fixas: [
+                { tipo: 'bloco', x: 420, y: 150, w: 218, h: 12 },
+                { tipo: 'bloco', x: 110, y: 320, w: 14, h: 72 },
+            ],
+            caixa: { luva: 1, gangorra: 1 },
+            objetivo: { tipo: 'zona', x: 4, y: 280, w: 104, h: 112 },
+        },
+        {
+            titulo: 'Pulando até o cesto',
+            texto: 'Faça a bola de basquete pular os três muros e cair no cesto. O teto é baixo: um pulo só não basta. Gire os trampolins com a alça ⟳.',
+            bola: { tipo: 'basquete', x: 50, y: 160 },
+            fixas: [
+                { tipo: 'bloco', x: 2, y: 2, w: 636, h: 118 },
+                { tipo: 'bloco', x: 160, y: 250, w: 14, h: 142 },
+                { tipo: 'bloco', x: 320, y: 220, w: 14, h: 172 },
+                { tipo: 'bloco', x: 480, y: 190, w: 14, h: 202 },
+                { tipo: 'cesto', x: 556, y: 346 },
+            ],
+            caixa: { trampolim: 3 },
+            objetivo: { tipo: 'cesto' },
+        },
+        {
+            titulo: 'Moinhos de vento',
+            texto: 'Estoure as duas bexigas. As engrenagens só estouram girando: o moinho gira com vento nas pás e, pela correia, gira a engrenagem.',
+            bolas: [
+                { tipo: 'tenis', x: 80, y: 40 },        // cai no fole
+                { tipo: 'bexiga', x: 265, y: 231 },
+                { tipo: 'bexiga', x: 515, y: 151 },
+            ],
+            fixas: [
+                { tipo: 'fole', x: 80, y: 300, dir: 1 },
+                { tipo: 'bloco', x: 225, y: 200, w: 80, h: 12 },
+                { tipo: 'engrenagem', id: 'g1', x: 265, y: 266, r: 18 },
+                { tipo: 'bloco', x: 470, y: 120, w: 90, h: 12 },
+                { tipo: 'engrenagem', id: 'g2', x: 515, y: 186, r: 18 },
+            ],
+            caixa: { moinho: 2, correia: 2, ventilador: 1, bateria: 1 },
+            objetivo: { tipo: 'estourar' },
+        },
+        {
+            titulo: 'Furacão',
+            texto: 'Leve o balão até a estrela. Aqui não tem bateria: os ventiladores só ligam pelo fio de um interruptor, e o interruptor liga quando uma bola bate nele.',
+            bolas: [
+                { tipo: 'balao', x: 560, y: 330 },
+                { tipo: 'basquete', x: 50, y: 40 },
+            ],
+            fixas: [
+                { tipo: 'bloco', x: 400, y: 240, w: 238, h: 12 },
+                { tipo: 'bloco', x: 100, y: 150, w: 300, h: 12 },
+                { tipo: 'bloco', x: 345, y: 205, w: 15, h: 95 },
+            ],
+            caixa: { ventilador: 2, interruptor: 1, fio: 2, rampa: 1 },
+            objetivo: { tipo: 'zona', x: 4, y: 20, w: 92, h: 100 },
+        },
+        {
+            titulo: 'Luz e fogo',
+            texto: 'Ponha a bola de basquete no cesto. Um caixote está no caminho — só dinamite quebra. A lanterna acesa, passando por uma lupa, junta a luz num ponto que acende pavio.',
+            bolas: [
+                { tipo: 'basquete', x: 500, y: 290 },
+                { tipo: 'tenis', x: 120, y: 40 },
+            ],
+            fixas: [
+                { tipo: 'lanterna', id: 'l1', x: 60, y: 222, dir: 1 },
+                { tipo: 'interruptor', id: 'i1', x: 220, y: 380 },
+                { tipo: 'rampa', x: 480, y: 300, ang: 15, len: 140 },
+                { tipo: 'caixote', x: 550, y: 230, w: 30, h: 100 },
+                { tipo: 'dinamite', x: 565, y: 222 },
+                { tipo: 'cesto', x: 540, y: 346 },
+            ],
+            caixa: { rampa: 1, fio: 1, lupa: 1 },
+            objetivo: { tipo: 'cesto' },
+        },
+        {
+            titulo: 'Fogo no canhão',
+            texto: 'Acerte uma bala de canhão no cesto lá no alto. O canhão dispara quando o foco da lupa esquenta o pavio dele; mire girando o canhão.',
+            bola: { tipo: 'basquete', x: 40, y: 40 },
+            fixas: [
+                { tipo: 'bloco', x: 300, y: 150, w: 16, h: 242 },
+                { tipo: 'bloco', x: 520, y: 200, w: 118, h: 12 },
+                { tipo: 'cesto', x: 550, y: 154 },
+            ],
+            caixa: { interruptor: 1, fio: 1, lanterna: 1, lupa: 1, canhao: 1 },
+            objetivo: { tipo: 'cesto', qualquer: true },
+        },
+        {
+            titulo: 'Bum, bum, bang',
+            texto: 'Leve a bola até a estrela. Dois caixotes no caminho, longe demais um do outro e do facho da lanterna: uma dinamite que explode acende as outras por perto.',
+            bola: { tipo: 'basquete', x: 50, y: 90 },
+            fixas: [
+                { tipo: 'rampa', x: 110, y: 120, ang: 10, len: 200 },
+                { tipo: 'caixote', x: 200, y: 60, w: 30, h: 90 },
+                { tipo: 'caixote', x: 440, y: 300, w: 30, h: 92 },
+                { tipo: 'lanterna', id: 'l1', x: 40, y: 250, dir: 1, ligado: true },
+            ],
+            caixa: { lupa: 1, dinamite: 3 },
+            objetivo: { tipo: 'zona', x: 540, y: 300, w: 96, h: 92 },
+        },
+        {
+            titulo: 'Subindo o morro',
+            texto: 'Leve a bola de boliche lá para cima, até a estrela. Os ratos já estão correndo; monte uma escada de esteiras inclinadas e ligue cada uma a um rato.',
+            bolas: [
+                { tipo: 'boliche', x: 110, y: 300 },
+                { tipo: 'tenis', x: 50, y: 250 },      // em cima das gaiolas: os ratos começam correndo
+                { tipo: 'tenis', x: 200, y: 330 },
+                { tipo: 'tenis', x: 420, y: 280 },
+            ],
+            fixas: [
+                { tipo: 'rato', id: 'r1', x: 50, y: 300 },
+                { tipo: 'bloco', x: 20, y: 318, w: 60, h: 10 },
+                { tipo: 'rato', id: 'r2', x: 200, y: 374 },
+                { tipo: 'rato', id: 'r3', x: 420, y: 330 },
+                { tipo: 'bloco', x: 390, y: 348, w: 60, h: 10 },
+                { tipo: 'bloco', x: 415, y: 180, w: 223, h: 12 },
+            ],
+            caixa: { esteira: 3, correia: 3 },
+            objetivo: { tipo: 'zona', x: 440, y: 100, w: 196, h: 80 },
+        },
+        {
+            titulo: 'A máquina incrível',
+            texto: 'Estoure as duas bexigas. Tudo começa com a bola de basquete caindo; a bola de tênis precisa voar até o interruptor lá no alto. Use tudo o que aprendeu.',
+            bolas: [
+                { tipo: 'tenis', x: 430, y: 372 },
+                { tipo: 'bala', x: 190, y: 135 },
+                { tipo: 'basquete', x: 130, y: 40 },
+                { tipo: 'bexiga', x: 420, y: 199 },
+                { tipo: 'bexiga', x: 240, y: 259 },
+            ],
+            fixas: [
+                { tipo: 'bloco', x: 2, y: 150, w: 218, h: 12 },
+                { tipo: 'interruptor', id: 'i1', x: 560, y: 100 },
+                { tipo: 'ventilador', id: 'v1', x: 620, y: 250, dir: -1 },
+                { tipo: 'bloco', x: 380, y: 170, w: 80, h: 10 },
+                { tipo: 'engrenagem', id: 'g1', x: 420, y: 233, r: 18 },
+                { tipo: 'lanterna', id: 'l1', x: 620, y: 330, dir: -1 },
+                { tipo: 'bloco', x: 210, y: 230, w: 60, h: 10 },
+                { tipo: 'dinamite', x: 240, y: 330 },
+            ],
+            caixa: { luva: 1, gangorra: 1, fio: 2, moinho: 1, correia: 1, lupa: 1 },
+            objetivo: { tipo: 'estourar' },
+        },
     ];
     if (typeof module !== 'undefined' && module.exports) module.exports = NIVEIS;
     else raiz.TIM_NIVEIS = NIVEIS;

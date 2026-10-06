@@ -21,6 +21,9 @@ export async function iniciarSala(sessaoId) {
         `SELECT 1 FROM sessao_enigma WHERE sessao_id = $1 LIMIT 1`, [sessaoId])).rowCount;
     if (jaTem) return contarSlots(sessaoId);
 
+    const modo = (await pool.query(`SELECT modo_jogo FROM sessao WHERE id = $1`, [sessaoId])).rows[0]?.modo_jogo;
+    if (modo === 'livre') return gravarSequencia(sessaoId, await sequenciaLivre());
+
     const qtd = Number((await pool.query(
         `SELECT param('qtd_enigmas', NULL, $1) AS q`, [sessaoId])).rows[0].q) || 4;
 
@@ -60,7 +63,18 @@ export async function iniciarSala(sessaoId) {
             si++;
         }
     }
+    return gravarSequencia(sessaoId, seq);
+}
 
+// Modo LIVRE: todo enigma ativo vira uma porta avulsa (sem limite de
+// `qtd_enigmas` e sem fase co-op — cada um resolve a sua, em qualquer ordem).
+async function sequenciaLivre() {
+    const r = await pool.query(
+        `SELECT id FROM enigma WHERE ativo = 'S' ORDER BY ordem NULLS LAST, id`);
+    return r.rows.map(x => ({ enigma_id: x.id, fase: null }));
+}
+
+async function gravarSequencia(sessaoId, seq) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -119,8 +133,10 @@ const SQL_ESTADO = `
            se.fase,
            param('decaimento_min', se.enigma_id, pj.sessao_id) AS decaimento_min,
            param('chat_aberto',    se.enigma_id, pj.sessao_id) AS chat_aberto,
-           e.id AS enigma_id, e.pergunta, e.tipo, e.nivel, e.arquivo
+           e.id AS enigma_id, e.pergunta, e.tipo, e.nivel, e.arquivo,
+           s.modo_jogo
       FROM partida_jogador pj
+      JOIN sessao s ON s.id = pj.sessao_id
       LEFT JOIN sessao_enigma se ON se.sessao_id = pj.sessao_id AND se.ordem = pj.porta
       LEFT JOIN enigma e ON e.id = se.enigma_id
      WHERE pj.sessao_id = $1 AND pj.jogador_id = $2`;
@@ -185,6 +201,7 @@ export async function estado(sessaoId, jogadorId) {
         dtEnergia: p.dt_energia,
         terminou,
         esgotado: Number(p.energia) <= 0 && !terminou,
+        modo: p.modo_jogo,
     };
     if (terminou) return { ...base, tipo: null, pergunta: null, nivel: null, arquivo: null };
 
@@ -357,11 +374,17 @@ export async function responder(sessaoId, jogadorId, resposta, ordemAlvo = null,
         `SELECT id FROM partida_jogador WHERE sessao_id = $1 AND jogador_id = $2`,
         [sessaoId, jogadorId],
     );
+    // livre: já tinha resolvido esta porta antes? (consultado ANTES de gravar esta tentativa)
+    const jaResolvida = st.modo === 'livre' && acertou && (await pool.query(
+        `SELECT 1 FROM tentativa WHERE sessao_id = $1 AND jogador_id = $2 AND ordem = $3 AND correta LIMIT 1`,
+        [sessaoId, jogadorId, st.porta])).rowCount > 0;
     await pool.query(
         `INSERT INTO tentativa (partida_id, sessao_id, jogador_id, ordem, porta, enigma_id, resposta, correta)
          VALUES ($1, $2, $3, $4, $4, $5, $6, $7)`,
         [pj.rows[0].id, sessaoId, jogadorId, st.porta, enigma_id, String(resposta).slice(0, 120), acertou],
     );
+
+    if (acertou && st.modo === 'livre') return acertoLivre(sessaoId, jogadorId, st, enigma_id, jaResolvida);
 
     if (acertou) {
         const nova = st.porta + 1;
@@ -387,6 +410,76 @@ export async function responder(sessaoId, jogadorId, resposta, ordemAlvo = null,
     )).rows[0].v);
     const energia = await settle(sessaoId, jogadorId, -pen);
     return { correta: false, energia };
+}
+
+// ── Modo LIVRE ──────────────────────────────────────────────────────
+// A sequência existe igual (sessao_enigma), mas `partida_jogador.porta` é só
+// "a porta que o jogador abriu agora" — ele escolhe qualquer uma na lista.
+// O que conta como resolvida é ter uma tentativa correta naquela `ordem`.
+// Quando resolve TODAS: porta = total + 1 e dt_fim (= concluiu, ganha o
+// bonus_vitoria em finalizarPartida, igual ao modo desafios).
+
+async function resolvidasLivre(sessaoId, jogadorId) {
+    const r = await pool.query(
+        `SELECT DISTINCT ordem FROM tentativa
+          WHERE sessao_id = $1 AND jogador_id = $2 AND correta`,
+        [sessaoId, jogadorId]);
+    return new Set(r.rows.map(x => Number(x.ordem)));
+}
+
+// Acertou a porta aberta. Bônus de energia só na 1ª vez (repetir não farma).
+async function acertoLivre(sessaoId, jogadorId, st, enigmaId, jaResolvida) {
+    const bonus = jaResolvida ? 0 : Number((await pool.query(
+        `SELECT param('bonus_enigma', $1, $2) AS v`, [enigmaId, sessaoId],
+    )).rows[0].v) || 0;
+    const terminou = (await resolvidasLivre(sessaoId, jogadorId)).size >= st.total;
+    await pool.query(
+        `UPDATE partida_jogador
+            SET porta = CASE WHEN $4 THEN $5::int ELSE porta END,
+                energia = GREATEST(0, LEAST(100, energia_atual(id) + $3)),
+                dt_energia = now(),
+                dt_fim = CASE WHEN $4 THEN now() ELSE dt_fim END
+          WHERE sessao_id = $1 AND jogador_id = $2`,
+        [sessaoId, jogadorId, bonus, terminou, st.total + 1],
+    );
+    const depois = await estado(sessaoId, jogadorId);
+    return { correta: true, livre: true, porta: st.porta, terminou, energia: depois.energia, total: st.total };
+}
+
+// Lista de portas do modo livre, com o rótulo (a `pergunta`) e o que este
+// jogador já resolveu. Devolve null se a sala não é livre.
+export async function listaLivre(sessaoId, jogadorId) {
+    const st = await estado(sessaoId, jogadorId);
+    if (!st || st.modo !== 'livre') return null;
+    const [r, feitas] = await Promise.all([
+        pool.query(
+            `SELECT se.ordem, e.pergunta, e.tipo, e.nivel
+               FROM sessao_enigma se JOIN enigma e ON e.id = se.enigma_id
+              WHERE se.sessao_id = $1
+              ORDER BY se.ordem`, [sessaoId]),
+        resolvidasLivre(sessaoId, jogadorId),
+    ]);
+    return {
+        total: st.total,
+        energia: st.energia,
+        portas: r.rows.map(x => ({
+            ordem: x.ordem, pergunta: x.pergunta, tipo: x.tipo, nivel: x.nivel,
+            resolvida: feitas.has(Number(x.ordem)),
+        })),
+    };
+}
+
+// Abre uma porta da lista (modo livre). Devolve o estado novo ou { erro }.
+export async function escolherPorta(sessaoId, jogadorId, ordem) {
+    const st = await estado(sessaoId, jogadorId);
+    if (!st || st.modo !== 'livre') return { erro: 'nao_livre' };
+    if (st.terminou) return { erro: 'ja_terminou' };
+    if (st.esgotado) return { erro: 'sem_energia' };
+    if (!Number.isInteger(ordem) || ordem < 1 || ordem > st.total) return { erro: 'ordem_invalida' };
+    await pool.query(
+        `UPDATE partida_jogador SET porta = $3 WHERE sessao_id = $1 AND jogador_id = $2 AND dt_fim IS NULL`,
+        [sessaoId, jogadorId, ordem]);
+    return estado(sessaoId, jogadorId);
 }
 
 // Um enigma do trecho de fase. Resolução coletiva (claim atômico em
@@ -490,7 +583,8 @@ export async function desistirEnigma(sessaoId, jogadorId, ordemAlvo = null) {
     const energia = await settle(sessaoId, jogadorId, -custo);
     if (energia === null) return { erro: 'sem_partida' };
 
-    const orgulho = (await pool.query(
+    // no modo livre não há "à frente" (cada um vai na ordem que quer)
+    const orgulho = st.modo !== 'livre' && (await pool.query(
         `SELECT EXISTS (SELECT 1 FROM partida_jogador
                          WHERE sessao_id = $1 AND jogador_id <> $2 AND porta > $3) AS x`,
         [sessaoId, jogadorId, st.porta],
@@ -673,7 +767,33 @@ export async function configJogo(sessaoId, jogadorId, ordem) {
     for (const [motivo, a] of Object.entries(ACOES_ENERGIA)) {
         cfg[motivo] = await lerParamJogo(a.chave, a.padrao, en?.id, sessaoId);
     }
+    // modo livre: o jogo deixa escolher o nível e mostra os já concluídos nesta sala
+    cfg.livre = st.modo === 'livre';
+    cfg.concluidos = cfg.livre && en ? await niveisConcluidos(sessaoId, jogadorId, en.id) : [];
     return cfg;
+}
+
+async function niveisConcluidos(sessaoId, jogadorId, enigmaId) {
+    const r = await pool.query(
+        `SELECT nivel FROM jogo_nivel WHERE sessao_id = $1 AND jogador_id = $2 AND enigma_id = $3 ORDER BY nivel`,
+        [sessaoId, jogadorId, enigmaId]);
+    return r.rows.map(x => x.nivel);
+}
+
+// Modo livre: o jogo aberto avisa que um nível interno foi concluído.
+// Idempotente (PK); devolve a lista atualizada. Só marca, não mexe em energia
+// nem resolve a porta — quem resolve a porta continua sendo a pontuação enviada.
+export async function marcarNivel(sessaoId, jogadorId, ordem, nivel) {
+    const st = await estado(sessaoId, jogadorId);
+    if (!st || st.modo !== 'livre' || st.terminou) return { erro: 'indisponivel' };
+    const en = await enigmaDoJogo(sessaoId, st, ordem);
+    if (!en) return { erro: 'nao_e_jogo' };
+    const n = Number(nivel);
+    if (!Number.isInteger(n) || n < 1 || n > (en.niveis || 1)) return { erro: 'nivel_invalido' };
+    await pool.query(
+        `INSERT INTO jogo_nivel (sessao_id, jogador_id, enigma_id, nivel) VALUES ($1, $2, $3, $4)
+         ON CONFLICT DO NOTHING`, [sessaoId, jogadorId, en.id, n]);
+    return { ok: true, concluidos: await niveisConcluidos(sessaoId, jogadorId, en.id) };
 }
 
 export async function energiaJogo(sessaoId, jogadorId, motivo, ordem) {

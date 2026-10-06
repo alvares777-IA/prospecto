@@ -4,12 +4,12 @@
 // (server/mundo.js). Nada aqui é regra.
 
 const Mundo = (() => {
-    const T = { GRAMA: 0, ARVORE: 1, PEDRA: 2, MINERIO: 3, ARBUSTO: 4, AGUA: 5, BURACO: 6, TERRA: 7, BAU: 8, TABUA: 9, MURO: 10 };
+    const T = { GRAMA: 0, ARVORE: 1, PEDRA: 2, MINERIO: 3, ARBUSTO: 4, AGUA: 5, BURACO: 6, TERRA: 7, BAU: 8, TABUA: 9, MURO: 10, PORTA: 11 };
     const TAM = 32;                        // lado das texturas
     // Vista 3/4 ("2.5D"): o chão é achatado (TY < TX) e os blocos sólidos
     // ganham altura (AL) — topo + face da frente — com ordenação por fileira.
     const TX = 32, TY = 24, AL = 14;
-    const ALTURA_PICK = { [T.ARVORE]: 18, [T.PEDRA]: AL, [T.MINERIO]: AL, [T.MURO]: AL, [T.BAU]: AL, [T.ARBUSTO]: 8 };
+    const ALTURA_PICK = { [T.PORTA]: 42, [T.ARVORE]: 18, [T.PEDRA]: AL, [T.MINERIO]: AL, [T.MURO]: AL, [T.BAU]: AL, [T.ARBUSTO]: 8 };
     const CUBOS = new Set([T.PEDRA, T.MINERIO, T.MURO]);
     const ITENS = ['pedra', 'madeira', 'comida', 'minerio'];
     const NOME_ITEM = { pedra: 'Pedra', madeira: 'Madeira', comida: 'Comida', minerio: 'Minério' };
@@ -33,6 +33,7 @@ const Mundo = (() => {
     let deltaRelogio = 0;                  // servidor - cliente (ms)
     let duracao = 240000;
     let raf = null;
+    let saiuParaHall = false;              // saiu pela porta: sem a tela "Não deu", o servidor leva ao hall
 
     // ── texturas procedurais (pixel-art 8×8 ampliada) ─────────────────
     function rngDe(s) { let a = s | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -110,6 +111,15 @@ const Mundo = (() => {
             g.fillStyle = '#f5c542'; g.fillRect(14, 13, 4, 6);
             g.fillStyle = '#c99a1e'; g.fillRect(14, 17, 4, 2);
         });
+        t.porta = sprite(32, 44, (g) => {
+            g.fillStyle = '#3d240e'; g.fillRect(2, 2, 28, 42);          // batente
+            g.fillStyle = '#7a4a1f'; g.fillRect(5, 5, 22, 39);          // folha
+            g.fillStyle = '#9c6230'; g.fillRect(5, 5, 10, 39);
+            g.fillStyle = '#5a3414'; g.fillRect(15, 5, 2, 39); g.fillRect(5, 22, 22, 2);
+            g.fillStyle = '#f5c542'; g.fillRect(22, 26, 3, 3);          // maçaneta
+            g.fillStyle = '#16a34a'; g.fillRect(8, 8, 16, 9);           // placa verde
+            g.fillStyle = '#fff'; g.fillRect(10, 10, 8, 5); g.fillRect(16, 12, 4, 1); g.fillRect(14, 10, 4, 1); g.fillRect(14, 14, 4, 1);
+        });
         return t;
     }
 
@@ -166,6 +176,10 @@ const Mundo = (() => {
             if (avisoFixo && !meuJogador()?.desmaiado) { avisoFixo = false; $('#mundo-aviso').attr('class', 'd-none'); }
             renderPainelDinamico();
         });
+        s.on('mundo_porta', () => {
+            if (!ativo) return;
+            if (confirmarSaida()) sair(true);
+        });
         s.on('mundo_aviso', ({ texto, tipo, fixo }) => aviso(texto, tipo, fixo));
         s.on('mundo_bau_som', ({ item, id }) => { if (ativo) somDeposito(item, id === eu?.jogadorId ? 1 : 0.3); });
         s.on('mundo_socorro', ({ nome, de }) => {
@@ -178,8 +192,10 @@ const Mundo = (() => {
             ativo = false;
             pararLoop();
             const passou = equipeCompleta || pontos >= (eu?.metaPessoal ?? Infinity);
+            if (saiuParaHall && !passou) { saiuParaHall = false; $('#mundo-overlay').removeClass('d-none').html(`<div class="text-center">${estado.modo === 'livre' ? 'Voltando à lista de jogos…' : 'Voltando ao hall…'}</div>`); return; }
+            saiuParaHall = false;
             $('#mundo-overlay').removeClass('d-none').html(passou
-                ? `<div class="text-center"><div class="h4 mb-1">Fim do mundo</div><div>Você saiu com <b>${pontos}</b> pontos${equipeCompleta ? ' e o baú da equipe cheio' : ''}.</div><div class="small text-secondary mt-1">Seguindo para a próxima porta…</div></div>`
+                ? `<div class="text-center"><div class="h4 mb-1">Fim do mundo</div><div>Você saiu com <b>${pontos}</b> pontos${equipeCompleta ? ' e o baú da equipe cheio' : ''}.</div><div class="small text-secondary mt-1">${estado.modo === 'livre' ? 'Voltando à lista de jogos…' : 'Seguindo para a próxima porta…'}</div></div>`
                 : `<div class="text-center"><div class="h4 mb-1">Não deu</div><div>Você saiu com <b>${pontos}</b> de ${eu?.metaPessoal} pontos e o baú não encheu.</div>
                    <button class="btn btn-primary mt-2" id="mundo-tentar">Entrar de novo</button></div>`);
             $('#mundo-tentar').on('click', () => { $('#mundo-overlay').addClass('d-none'); iniciar(sock); });
@@ -274,7 +290,20 @@ const Mundo = (() => {
         pararLoop();
     }
     function pararLoop() { if (raf) cancelAnimationFrame(raf); raf = null; }
-    function sair() { if (sock && ativo) sock.emit('mundo_sair'); }
+    // Sem a meta pessoal e com o baú da equipe incompleto, sair não passa: avisa que o que está na mochila se perde.
+    function confirmarSaida() {
+        const faltaMeta = eu && eu.pontos < eu.metaPessoal;
+        const baucheio = bau.total >= (bau.meta || eu?.metaEquipe || Infinity);
+        if (faltaMeta && !baucheio) {
+            return window.confirm(`Você ainda não atingiu a meta (${eu.pontos} de ${eu.metaPessoal} pontos) e o baú da equipe não está cheio.
+
+Se sair agora, TUDO o que você coletou e não depositou no baú será perdido e você não passa desta porta.
+
+Sair mesmo assim?`);
+        }
+        return window.confirm('Sair do mundo e entregar seus pontos?');
+    }
+    function sair(hall = false) { if (sock && ativo) { saiuParaHall = hall; sock.emit('mundo_sair', { hall }); } }
 
     function ajustarCanvas() {
         if (!cv) return;
@@ -305,7 +334,7 @@ const Mundo = (() => {
     }
 
     const bloco = (x, y) => (x < 0 || y < 0 || x >= mapa.larg || y >= mapa.alt) ? T.AGUA : mapa.g[y * mapa.larg + x];
-    const ehAlto = b => b === T.ARVORE || b === T.ARBUSTO || b === T.BAU || CUBOS.has(b);
+    const ehAlto = b => b === T.PORTA || b === T.ARVORE || b === T.ARBUSTO || b === T.BAU || CUBOS.has(b);
 
     // Cubo: topo (achatado) + face da frente escurecida, com realce na quina.
     function cubo(tex, sx, sy) {
@@ -460,6 +489,12 @@ const Mundo = (() => {
                 const sx = x * TX - cam.x, sy = y * TY - cam.y;
                 if (b === T.ARVORE) { sombraChao(sx, sy, 26, 8); ctx.drawImage(texturas.arvore, sx, sy + TY - 44); }
                 else if (b === T.ARBUSTO) { sombraChao(sx, sy, 24, 6); ctx.drawImage(texturas.arbusto, sx, sy + TY - 20); }
+                else if (b === T.PORTA) {
+                    sombraChao(sx, sy, 30, 8); ctx.drawImage(texturas.porta, sx, sy + TY - 42);
+                    ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 3;
+                    ctx.strokeText('SAÍDA', sx + TX / 2, sy + TY - 46); ctx.fillText('SAÍDA', sx + TX / 2, sy + TY - 46); ctx.textAlign = 'start';
+                }
                 else if (b === T.BAU) { sombraChao(sx, sy, 28, 8); ctx.drawImage(texturas.bau, sx, sy + TY - 28); }
                 else { sombraChao(sx, sy, TX, 8); cubo(texturas[b][0], sx, sy); }
             } });
@@ -607,7 +642,7 @@ const Mundo = (() => {
     function desenharMinimapa(w, h) {
         const e = 2, mw = mapa.larg * e, mh = mapa.alt * e, ox = w - mw - 8, oy = 8;
         ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(ox - 2, oy - 2, mw + 4, mh + 4);
-        const cores = { [T.GRAMA]: '#4f9436', [T.ARVORE]: '#285c1c', [T.PEDRA]: '#7c808a', [T.MINERIO]: '#f5c542', [T.ARBUSTO]: '#c0392b', [T.AGUA]: '#2f6fd0', [T.BURACO]: '#120a05', [T.TERRA]: '#7d5130', [T.BAU]: '#fff', [T.TABUA]: '#b0793f', [T.MURO]: '#5b5e66' };
+        const cores = { [T.GRAMA]: '#4f9436', [T.ARVORE]: '#285c1c', [T.PEDRA]: '#7c808a', [T.MINERIO]: '#f5c542', [T.ARBUSTO]: '#c0392b', [T.AGUA]: '#2f6fd0', [T.BURACO]: '#120a05', [T.TERRA]: '#7d5130', [T.BAU]: '#fff', [T.TABUA]: '#b0793f', [T.MURO]: '#5b5e66', [T.PORTA]: '#a0622d' };
         for (let y = 0; y < mapa.alt; y++) for (let x = 0; x < mapa.larg; x++) {
             ctx.fillStyle = cores[mapa.g[y * mapa.larg + x]]; ctx.fillRect(ox + x * e, oy + y * e, e, e);
         }
@@ -882,7 +917,11 @@ const Mundo = (() => {
     $(document).on('click', '#mundo-btn-ajuda', () => { if (ativo) mostrarAjuda(false); });
     $(document).on('click', '#mundo-btn-socorro', () => sock.emit('mundo_socorro'));
     $(document).on('click', '#mundo-btn-sair', () => {
-        if (window.confirm('Sair do mundo agora e entregar seus pontos?')) sair();
+        if (confirmarSaida()) sair();
+    });
+    // mesma saída da porta do mapa: entrega os pontos e volta ao hall (ou à lista, no modo livre)
+    $(document).on('click', '#mundo-btn-hall', () => {
+        if (ativo && confirmarSaida()) sair(true);
     });
     $(document).on('click', '#mundo-btn-tela-cheia', () => {
         const el = document.getElementById('jogo-mundo');

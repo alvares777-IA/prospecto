@@ -79,7 +79,12 @@
           <span class="hall-porta-placa">NOVA SALA</span>
         </button>
       </div>
-      <p class="text-secondary small text-center mb-4">a porta verde cria uma sala nova</p>
+      <p class="text-secondary small text-center mb-2">a porta verde cria uma sala nova</p>
+      <div id="escolha-modo" class="text-center mb-4 d-none">
+        <p class="mb-2">Como vai ser o jogo nesta sala?</p>
+        <button class="btn btn-primary btn-modo-jogo mb-2" type="button" data-modo="desafios">Desafios<br><small>portas em sequência</small></button>
+        <button class="btn btn-outline-info btn-modo-jogo mb-2 ms-1" type="button" data-modo="livre">Livre<br><small>escolha qualquer porta</small></button>
+      </div>
 
       <div class="divisor mb-3"><span>ou entre numa sala recente</span></div>
 
@@ -111,6 +116,7 @@
               <p class="text-secondary small mb-0" id="status-conexao">conectando…</p>
             </div>
             <div class="text-end small">
+              <span id="rotulo-modo" class="badge text-bg-info me-1 d-none">LIVRE</span>
               <span class="text-secondary">Sala</span>
               <span id="rotulo-codigo" class="badge text-bg-secondary fs-6"></span>
               <button id="btn-copiar" class="btn btn-sm btn-outline-secondary ms-1">copiar link</button>
@@ -151,6 +157,8 @@
             </div>
             <div id="hall-jogadores" class="hall-chao"></div>
           </div>
+          <!-- modo livre: todas as portas, rotuladas pela pergunta -->
+          <div id="hall-livre" class="fase-portas livre-portas mt-2 d-none"></div>
           <div id="hall-fora-box" class="hall-fora d-none">
             <span class="text-secondary small">Fora da sala:</span>
             <span id="hall-fora" class="d-inline-flex flex-wrap gap-2"></span>
@@ -172,7 +180,7 @@
           <button id="jogo-pedir-doacao" class="btn btn-outline-info btn-sm mb-2 ms-1" type="button">Pedir doação de energia</button>
           <button id="jogo-desistir" class="btn btn-outline-danger btn-sm mb-2 ms-1" type="button">Desistir e ver a resposta (-20%)</button>
           <button id="jogo-sair" class="btn btn-outline-secondary btn-sm mb-2 ms-1" type="button">Sair da sala</button>
-          <button class="btn btn-outline-secondary btn-sm mb-2 ms-1 btn-voltar-hall" type="button">🚪 Voltar ao hall</button>
+          <button class="btn btn-outline-secondary btn-sm mb-2 ms-1 btn-voltar-hall btn-rotulo-voltar" type="button">🚪 Voltar ao hall</button>
           <div id="resposta-recebida" class="alert alert-info py-2 d-none" role="alert"></div>
           <div id="jogo-aviso" class="small"></div>
         </div>
@@ -266,6 +274,7 @@
             <button id="mundo-btn-ajuda" class="btn btn-outline-info btn-sm" type="button">? Como jogar</button>
             <button id="mundo-btn-tela-cheia" class="btn btn-outline-secondary btn-sm ms-1" type="button">⛶ Tela cheia</button>
             <button id="mundo-btn-sair" class="btn btn-outline-primary btn-sm ms-1" type="button">Sair do mundo (entregar pontos)</button>
+            <button id="mundo-btn-hall" class="btn btn-outline-secondary btn-sm ms-1 btn-rotulo-voltar" type="button">🚪 Voltar ao hall</button>
             <button id="mundo-sair-sala" class="btn btn-outline-secondary btn-sm ms-1" type="button">Sair da sala</button>
           </div>
         </div>

@@ -16,6 +16,8 @@
         tenis:    { r: 6, g: 0.3, restit: 0.7, atrito: 0.004, massa: 0.4, arrasto: 0.998 },
         balao:    { r: 15, g: -0.09, restit: 0.3, atrito: 0.02, massa: 0.6, arrasto: 0.985 },
         bexiga:   { r: 15, g: -0.09, restit: 0.3, atrito: 0.02, massa: 0.6, arrasto: 0.97 },   // bexiga dos foles: mais freio do ar
+        beisebol: { r: 7, g: 0.3, restit: 0.5, atrito: 0.004, massa: 0.6, arrasto: 0.998 },
+        bala:     { r: 10, g: 0.3, restit: 0.08, atrito: 0.002, massa: 6, arrasto: 0.9995 },  // bala de canhão
     };
     const FORCA_VENTO = 0.34, ALCANCE_VENTO = 250, ALTURA_VENTO = 40;
     const VELOCIDADE_ESTEIRA = 2.4, GANHO_ESTEIRA = 0.2;   // esteira ligada puxa a bola até essa velocidade
@@ -29,6 +31,23 @@
     // Ambiente (painel de controle): gravidade 1 = Terra; ar 1 = pressão normal.
     // O ar escala o vento e a resistência do ar, e o empuxo das bexigas: no vácuo elas caem.
     const EMPUXO_BEXIGA = 0.15;
+    // Gangorra: tábua sobre um apoio, sempre com uma ponta no baixo. Bola caindo
+    // na ponta alta vira a gangorra e arremessa o que estiver na outra ponta —
+    // quanto mais pesada e mais rápida a que cai, mais alto vai a arremessada.
+    const GANGORRA = { meio: 50, ang: 18, apoio: 20 }, IMPACTO_MIN = 1.5, GANHO_GANGORRA = 0.25, LANCE_MAX = 12;
+    // Luva de boxe: bola encostando na metade de trás (o botão) dá um soco para a frente.
+    const LUVA = { w: 36, h: 20 }, ALCANCE_SOCO = 60, ALTURA_SOCO = 30, FORCA_SOCO = 8, RECARGA_SOCO = 45;
+    const INTERRUPTOR = { w: 26, h: 14 };
+    const FIO_MAX = 320;                 // fio do interruptor até o aparelho
+    // Moinho: torre com pás no alto; o vento (ventilador ou fole) nas pás faz ele girar.
+    // Ele move uma correia igual ao rato, e depois que pega embalo não para mais.
+    const MOINHO = { w: 22, h: 50 }, PAS = 24;
+    // Luz: a lanterna acesa solta um facho reto; a lupa no caminho junta a luz num
+    // ponto (o foco) a FOCO px depois dela. Pavio (de dinamite ou canhão) no foco acende.
+    const LANTERNA = { w: 28, h: 16 }, LUPA = 14, FOCO = 70, AQUECER = 15;
+    const DINAMITE = { w: 30, h: 16 }, PAVIO_DINAMITE = 45, RAIO_EXPLOSAO = 110, FORCA_EXPLOSAO = 12, ALCANCE_CAIXOTE = 70;
+    const CANHAO = { w: 44, h: 22 }, PAVIO_CANHAO = 25, VEL_BALA = 11;
+    const PAVIOS = ['dinamite', 'canhao'];
 
     const rad = g => (g * Math.PI) / 180;
     const ehBexiga = b => b.tipo === 'balao' || b.tipo === 'bexiga';
@@ -52,6 +71,12 @@
             case 'fole': return FOLE;
             case 'tesoura': return TESOURA;
             case 'trampolim': return { w: 72, h: 0 };
+            case 'luva': return LUVA;
+            case 'interruptor': return INTERRUPTOR;
+            case 'moinho': return MOINHO;
+            case 'lanterna': return LANTERNA;
+            case 'dinamite': return DINAMITE;
+            case 'canhao': return CANHAO;
             default: return null;
         }
     }
@@ -66,13 +91,19 @@
         if (p.tipo === 'esteira') return girarPt(p, (p.w || ESTEIRA.w) * 0.2, 0);
         if (p.tipo === 'rato') return girarPt(p, p.espelho ? -14 : 14, -8);   // gaiola espelhada: roda do outro lado
         if (p.tipo === 'engrenagem') return [p.x, p.y];
+        if (p.tipo === 'moinho') return eixoMoinho(p);
         return null;
     }
-    // Pontas de uma correia { de, para } (ids de um rato e de uma esteira/engrenagem), ou null.
+    const eixoMoinho = p => girarPt(p, 0, -MOINHO.h / 2 + 6);
+    // Ponto onde o fio se prende: o meio do interruptor / do aparelho.
+    const tomada = p => ['interruptor', 'ventilador', 'lanterna'].includes(p.tipo) ? [p.x, p.y] : null;
+    // Pontas de uma correia { de, para } (ids de um rato/moinho e de uma esteira/engrenagem)
+    // ou de um fio (interruptor → ventilador/lanterna), ou null.
     function pontasCorreia(c, todas) {
         const a = todas.find(p => p.id === c.de), b = todas.find(p => p.id === c.para);
         if (!a || !b) return null;
-        const ga = engrenagem(a), gb = engrenagem(b);
+        const ponto = c.tipo === 'fio' ? tomada : engrenagem;
+        const ga = ponto(a), gb = ponto(b);
         if (!ga || !gb) return null;
         return { a, b, ga, gb, comprimento: Math.hypot(ga[0] - gb[0], ga[1] - gb[1]) };
     }
@@ -99,6 +130,13 @@
         return [esq, dir];
     }
 
+    // Gangorra: `lado` -1 = ponta esquerda embaixo, 1 = direita (a peça espelhada começa com a direita embaixo).
+    const ladoGangorra = p => p.lado ?? (p.espelho ? 1 : -1);
+    function pontasGangorra(p) {
+        const a = rad(GANGORRA.ang), dx = Math.cos(a) * GANGORRA.meio, dy = Math.sin(a) * GANGORRA.meio, l = ladoGangorra(p);
+        return [[p.x - dx, p.y - l * dy], [p.x + dx, p.y + l * dy]];
+    }
+
     const segsCaixa = ([x0, y0, x1, y1]) => [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]];
 
     // Segmentos [x1,y1,x2,y2,restit?] que uma peça ocupa.
@@ -117,7 +155,15 @@
                 return [[x, y, x, y + 46], [x, y + 46, x + 64, y + 46], [x + 64, y + 46, x + 64, y]];
             }
             case 'ventilador': case 'esteira': case 'rato': case 'fole': case 'tesoura':
+            case 'luva': case 'interruptor': case 'moinho': case 'lanterna': case 'dinamite': case 'canhao':
                 return segsRetangulo(p, tamanho(p));
+            case 'caixote': return segsCaixa([p.x, p.y, p.x + p.w, p.y + p.h]);
+            case 'gangorra': {   // tábua inclinada (ponta baixa do lado `espelho`? direita : esquerda) + apoio triangular
+                const [e, d] = pontasGangorra(p), a = GANGORRA.apoio;
+                const L = Math.hypot(d[0] - e[0], d[1] - e[1]), nx = (d[1] - e[1]) / L * 7, ny = -(d[0] - e[0]) / L * 7;   // batentes nas pontas
+                return [[...e, ...d], [...e, e[0] + nx, e[1] + ny], [...d, d[0] + nx, d[1] + ny],
+                    [p.x, p.y + 3, p.x - 10, p.y + a], [p.x, p.y + 3, p.x + 10, p.y + a], [p.x - 10, p.y + a, p.x + 10, p.y + a]];
+            }
             case 'engrenagem': {   // octógono no lugar do círculo
                 const r = p.r || 18, pts = [];
                 for (let i = 0; i < 8; i++) pts.push([p.x + Math.cos(i * Math.PI / 4) * r, p.y + Math.sin(i * Math.PI / 4) * r]);
@@ -158,6 +204,8 @@
             return [...nivel.fixas, ...outras].some(q => segmentosDe(q).some(s => distSeg(p.x, p.y, s) < r + ESP));
         }
         const segs = segmentosDe(p);
+        // nada pode ficar para fora do cenário (nem enfiado nas paredes da tela)
+        if (segs.some(([x1, y1, x2, y2]) => Math.min(x1, x2) < 2 || Math.max(x1, x2) > W - 2 || Math.min(y1, y2) < 2 || Math.max(y1, y2) > H - 7)) return true;
         return bolas.some(b => segs.some(s => distSeg(b.x, b.y, s) < b.r + ESP));
     }
     function distSeg(x, y, [x1, y1, x2, y2]) {
@@ -183,8 +231,20 @@
         const segs = [
             [0, H - 8, W, H - 8], [2, 0, 2, H], [W - 2, 0, W - 2, H], [0, 2, W, 2],   // chão, paredes e teto
         ];
-        for (const p of todas) for (const s of segmentosDe(p)) segs.push(s);
-        const ventos = todas.filter(p => p.tipo === 'ventilador' && p.ligado).map(p => zonaVento(p, 15, ALCANCE_VENTO, ALTURA_VENTO));
+        // cada segmento sabe de que peça é (`dono`): gangorra vira, dinamite e caixote somem
+        for (const p of todas) for (const s of segmentosDe(p)) { s.dono = p; segs.push(s); }
+        // fios: interruptor → ventilador/lanterna (fio comprido demais fica solto)
+        const fios = [];
+        for (const c of todas) {
+            if (c.tipo !== 'fio') continue;
+            const pc = pontasCorreia(c, todas);
+            if (!pc || pc.comprimento > FIO_MAX) continue;
+            const chave = [pc.a, pc.b].find(p => p.tipo === 'interruptor'), aparelho = [pc.a, pc.b].find(p => p.tipo !== 'interruptor');
+            if (chave && aparelho) fios.push({ chave: chave.id, aparelho: aparelho.id });
+        }
+        const ventos = todas.filter(p => p.tipo === 'ventilador').map(p => ({
+            id: p.id, bateria: !!p.ligado, ativo: !!p.ligado, ...zonaVento(p, 15, ALCANCE_VENTO, ALTURA_VENTO),
+        }));
         const foles = todas.filter(p => p.tipo === 'fole').map(p => ({
             ret: retangulo(p), vento: zonaVento(p, FOLE.w / 2, ALCANCE_FOLE, ALTURA_FOLE),
             sopro: 0, tocando: new Set(), soprou: 0,
@@ -196,22 +256,36 @@
         });
         const engrenagens = todas.filter(p => p.tipo === 'engrenagem').map(p => ({ id: p.id, x: p.x, y: p.y, r: p.r || 18 }));
         const ratos = todas.filter(p => p.tipo === 'rato').map(p => ({ id: p.id, ret: retangulo(p) }));
+        const moinhos = todas.filter(p => p.tipo === 'moinho').map(p => ({ id: p.id, eixo: eixoMoinho(p) }));
         const correias = [];
         for (const c of todas) {
             if (c.tipo !== 'correia') continue;
             const pc = pontasCorreia(c, todas);
             if (!pc || pc.comprimento > CORREIA_MAX) continue;
-            const rato = [pc.a, pc.b].find(p => p.tipo === 'rato'), movida = [pc.a, pc.b].find(p => p.tipo === 'esteira' || p.tipo === 'engrenagem');
-            // gaiola espelhada: a roda gira ao contrário, e a correia leva esse sentido para a esteira
-            if (rato && movida) correias.push({ rato: rato.id, alvo: movida.id, sentido: rato.espelho ? -1 : 1 });
+            const fonte = [pc.a, pc.b].find(p => p.tipo === 'rato' || p.tipo === 'moinho'), movida = [pc.a, pc.b].find(p => p.tipo === 'esteira' || p.tipo === 'engrenagem');
+            // gaiola (ou moinho) espelhada: a roda gira ao contrário, e a correia leva esse sentido para a esteira
+            if (fonte && movida) correias.push({ rato: fonte.id, alvo: movida.id, sentido: fonte.espelho ? -1 : 1 });
         }
+        const gangorras = todas.filter(p => p.tipo === 'gangorra').map(p => ({ p, lado: ladoGangorra(p), recarga: 0, viradas: 0 }));
+        const luvas = todas.filter(p => p.tipo === 'luva').map(p => {
+            const a = rad(p.ang || 0), d = p.dir || 1;
+            return { p, ret: retangulo(p), d, ux: d * Math.cos(a), uy: d * Math.sin(a), recarga: 0, socando: 0, socos: 0 };
+        });
+        const interruptores = todas.filter(p => p.tipo === 'interruptor').map(p => ({ id: p.id, ret: retangulo(p), ligado: false }));
+        const lanternas = todas.filter(p => p.tipo === 'lanterna').map(p => ({ p, id: p.id, bateria: !!p.ligado, ativo: !!p.ligado }));
+        const lupas = todas.filter(p => p.tipo === 'lupa').map(p => ({ x: p.x, y: p.y }));
+        const dinamites = todas.filter(p => p.tipo === 'dinamite').map(p => ({ p, ret: retangulo(p), calor: 0, pavio: -1, explodiu: false }));
+        const canhoes = todas.filter(p => p.tipo === 'canhao').map(p => ({ p, ret: retangulo(p), calor: 0, pavio: -1, disparou: false }));
+        const caixotes = todas.filter(p => p.tipo === 'caixote').map(p => ({ p, quebrou: false }));
         const bolas = bolasDoNivel(nivel, pecas);
         const amb = { ...(nivel.ambiente || {}), ...(ambiente || {}) };
         return {
-            nivel, segs, ventos, foles, tesouras, esteiras, engrenagens, ratos, correias, bolas,
+            nivel, segs, ventos, foles, tesouras, esteiras, engrenagens, ratos, moinhos, correias, bolas,
+            fios, gangorras, luvas, interruptores, lanternas, lupas, dinamites, canhoes, caixotes,
             gravidade: amb.gravidade ?? 1, ar: amb.ar ?? 1,
             bola: bolas[nivel.objetivo.bola || 0],   // a bola que precisa chegar no objetivo
-            ratosAtivos: new Set(), ligadas: new Set(), sentido: new Map(),   // ligadas: ids de esteiras/engrenagens girando
+            ratosAtivos: new Set(), ligadas: new Set(), sentido: new Map(),   // ratosAtivos: ratos e moinhos girando; ligadas: ids de esteiras/engrenagens girando
+            luz: [], explosoes: [],   // para o desenho: fachos de luz do quadro e explosões que já aconteceram
             quadro: 0, dentro: 0, resolvido: false, esgotou: false,
         };
     }
@@ -264,18 +338,33 @@
         return b.x > Math.min(...xs) - meia && b.x < Math.max(...xs) + meia && b.y > Math.min(...ys) + b.r && b.y < Math.max(...ys) + meia;
     }
 
-    function objetivoCumprido(m) {
-        const o = m.nivel.objetivo, b = m.bola;
-        if (o.tipo === 'estourar') return m.bolas.every(x => !ehBexiga(x) || x.estourou);
-        if (o.tipo === 'canos') return o.bolas.every(i => m.nivel.fixas.some(c => c.tipo === 'cano' && dentroDoCano(m.bolas[i], c)));
+    // A bola está dentro do cesto / da zona? (`o.qualquer`: vale qualquer bola, como a bala que o canhão dispara)
+    function dentroDe(o, m, b) {
         if (o.tipo === 'cesto') {
-            const c = m.nivel.fixas.find(p => p.tipo === 'cesto');
+            const c = m.nivel.fixas.find(p => p.tipo === 'cesto' && (o.cesto == null || p.id === o.cesto));
             return b.x > c.x + 4 && b.x < c.x + 60 && b.y > c.y + 6 && b.y < c.y + 46;
         }
-        if (o.tipo === 'zona') return b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h;
+        return b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h;
+    }
+    function cumpre(m, o) {
+        if (o.tipo === 'todos') return o.lista.every(x => cumpre(m, x));
+        if (o.tipo === 'estourar') return m.bolas.every(x => !ehBexiga(x) || x.estourou);
+        if (o.tipo === 'caixotes') return m.caixotes.every(c => c.quebrou);
+        if (o.tipo === 'canos') return o.bolas.every(i => m.nivel.fixas.some(c => c.tipo === 'cano' && dentroDoCano(m.bolas[i], c)));
+        if (o.tipo === 'cesto' || o.tipo === 'zona') {
+            const candidatas = o.qualquer ? m.bolas.filter(x => !ehBexiga(x) && !x.estourou) : [m.bolas[o.bola || 0]];
+            return candidatas.some(b => b && !b.estourou && dentroDe(o, m, b));
+        }
         return false;
     }
+    const objetivoCumprido = m => cumpre(m, m.nivel.objetivo);
 
+    // ponto (x,y) dentro da zona de vento v (com folga de lado)?
+    function naZona(x, y, v, folga) {
+        const dx = x - v.boca[0], dy = y - v.boca[1];
+        const frente = dx * v.ux + dy * v.uy, lado = -dx * v.uy + dy * v.ux;
+        return frente > 0 && frente < v.alcance && Math.abs(lado) < v.altura / 2 + (folga || 0);
+    }
     function empurrarVento(b, v, forcaBase, f) {
         const dx = b.x - v.boca[0], dy = b.y - v.boca[1];
         const frente = dx * v.ux + dy * v.uy, lado = -dx * v.uy + dy * v.ux;   // ao longo do sopro / de lado
@@ -285,24 +374,146 @@
         }
     }
 
+    // Raio (ox,oy)+t(ux,uy) contra os segmentos: o menor t > 0 (até `max`), ignorando os da peça `dono`
+    // (ou, com dono = 'pavios', os da dinamite e do canhão: o foco pode cair dentro deles).
+    function raio(m, ox, oy, ux, uy, max, dono) {
+        let melhor = max;
+        for (const s of m.segs) {
+            if (dono && (dono === 'pavios' ? PAVIOS.includes(s.dono?.tipo) : s.dono === dono)) continue;
+            const [x1, y1, x2, y2] = s, ex = x2 - x1, ey = y2 - y1, den = ux * ey - uy * ex;
+            if (Math.abs(den) < 1e-9) continue;
+            const t = ((x1 - ox) * ey - (y1 - oy) * ex) / den, u = ((x1 - ox) * uy - (y1 - oy) * ux) / den;
+            if (t > 0.5 && t < melhor && u >= 0 && u <= 1) melhor = t;
+        }
+        return melhor;
+    }
+    // Fachos das lanternas acesas; devolve os pontos de foco (luz passando por uma lupa).
+    function iluminar(m) {
+        m.luz = [];
+        const focos = [];
+        for (const l of m.lanternas) {
+            if (!l.ativo) continue;
+            const p = l.p, d = p.dir || 1, a = rad(p.ang || 0), ux = d * Math.cos(a), uy = d * Math.sin(a);
+            const [ox, oy] = girarPt(p, d * (LANTERNA.w / 2 + 1), 0);
+            const parede = raio(m, ox, oy, ux, uy, 900, p);
+            let lupa = null, tl = parede;
+            for (const q of m.lupas) {   // a primeira lupa que o facho atravessa
+                const t = (q.x - ox) * ux + (q.y - oy) * uy;
+                if (t <= 0 || t >= tl) continue;
+                if (Math.hypot(ox + ux * t - q.x, oy + uy * t - q.y) <= LUPA) { lupa = q; tl = t; }
+            }
+            if (!lupa) { m.luz.push({ de: [ox, oy], ate: [ox + ux * parede, oy + uy * parede], foco: null }); continue; }
+            const ate = Math.min(FOCO, raio(m, lupa.x, lupa.y, ux, uy, FOCO, 'pavios'));
+            const foco = ate >= FOCO - 0.01 ? [lupa.x + ux * FOCO, lupa.y + uy * FOCO] : null;   // parede antes do foco: não esquenta
+            m.luz.push({ de: [ox, oy], ate: [lupa.x, lupa.y], lupa: [lupa.x, lupa.y], cone: [lupa.x + ux * ate, lupa.y + uy * ate], foco });
+            if (foco) focos.push(foco);
+        }
+        return focos;
+    }
+    const noFoco = (ret, focos) => focos.some(([x, y]) => distRet({ x, y }, ret) <= 6);
+
+    function explodir(m, d) {
+        d.explodiu = true;
+        const [cx, cy] = [d.p.x, d.p.y];
+        m.explosoes.push({ x: cx, y: cy, quadro: m.quadro });
+        m.segs = m.segs.filter(s => s.dono !== d.p);
+        for (const b of m.bolas) {
+            if (b.estourou) continue;
+            const dx = b.x - cx, dy = b.y - cy, dist = Math.hypot(dx, dy) || 1;
+            if (dist >= RAIO_EXPLOSAO) continue;
+            if (ehBexiga(b)) { b.estourou = true; continue; }
+            const v = Math.min(14, FORCA_EXPLOSAO * (1 - dist / RAIO_EXPLOSAO) / b.massa);
+            b.vx += dx / dist * v; b.vy += dy / dist * v;
+        }
+        for (const c of m.caixotes) {
+            if (c.quebrou) continue;
+            const { x, y, w, h } = c.p, px = Math.max(x, Math.min(cx, x + w)), py = Math.max(y, Math.min(cy, y + h));
+            if (Math.hypot(cx - px, cy - py) < ALCANCE_CAIXOTE) { c.quebrou = true; m.segs = m.segs.filter(s => s.dono !== c.p); }
+        }
+        // a explosão acende o pavio de outras dinamites e canhões por perto
+        for (const o of [...m.dinamites, ...m.canhoes]) {
+            if (o.explodiu || o.disparou || o.pavio >= 0) continue;
+            if (Math.hypot(o.p.x - cx, o.p.y - cy) < RAIO_EXPLOSAO) o.pavio = 10;
+        }
+    }
+    function disparar(m, c) {
+        c.disparou = true;
+        const p = c.p, d = p.dir || 1, a = rad(p.ang || 0), ux = d * Math.cos(a), uy = d * Math.sin(a);
+        const [x, y] = girarPt(p, d * (CANHAO.w / 2 + BOLAS.bala.r + ESP + 2), 0);
+        m.bolas.push({ tipo: 'bala', ...BOLAS.bala, x, y, vx: ux * VEL_BALA, vy: uy * VEL_BALA, estourou: false, disparada: true });
+        m.explosoes.push({ x, y, quadro: m.quadro, tiro: true });
+    }
+
+    // Gangorra: bola caindo na ponta alta (impacto = massa × velocidade de queda) vira a
+    // tábua, se o impacto vencer o peso parado na outra ponta; o que estava na ponta
+    // baixa é arremessado para cima e um pouco para fora.
+    function virarGangorras(m, vivas) {
+        for (const g of m.gangorras) {
+            if (g.recarga > 0) { g.recarga--; continue; }
+            const [ini, fim] = pontasGangorra({ ...g.p, lado: g.lado }), tabua = [...ini, ...fim];
+            const naTabua = b => !b.estourou && !ehBexiga(b) && distSeg(b.x, b.y, tabua) <= b.r + ESP + 8 && b.y < g.p.y + GANGORRA.apoio;
+            const alta = -g.lado;   // lado (sinal de x) da ponta que está em cima
+            let impacto = 0, quem = null;
+            for (const b of vivas) {
+                if (!naTabua(b) || Math.sign(b.x - g.p.x) !== alta || Math.abs(b.x - g.p.x) < 8) continue;
+                const i = b.massa * Math.max(0, b.pvy);
+                if (i > impacto) { impacto = i; quem = b; }
+            }
+            if (!quem || impacto < IMPACTO_MIN) continue;
+            const doOutroLado = vivas.filter(b => b !== quem && naTabua(b) && Math.sign(b.x - g.p.x) === g.lado);
+            const peso = doOutroLado.reduce((s, b) => s + b.massa, 0);
+            if (impacto < 2 * peso) continue;
+            g.lado = -g.lado; g.recarga = 12 * SUBPASSOS; g.viradas++;
+            m.segs = m.segs.filter(s => s.dono !== g.p);
+            for (const s of segmentosDe({ ...g.p, lado: g.lado })) { s.dono = g.p; m.segs.push(s); }
+            const tg = Math.tan(rad(GANGORRA.ang));
+            for (const b of doOutroLado) {
+                const v = Math.min(LANCE_MAX, GANHO_GANGORRA * impacto / b.massa);
+                b.y = g.p.y + g.lado * (b.x - g.p.x) * tg - b.r - ESP - 1;   // em cima da tábua na posição nova
+                b.vy = -v; b.vx = Math.sign(b.x - g.p.x) * v * 0.3;
+            }
+            quem.vy *= 0.3;
+        }
+    }
+
     function passo(m) {
         if (m.resolvido || m.esgotou) return;
         const f = 1 / SUBPASSOS;
+        // energia: interruptor ligado acende os aparelhos no fio dele; luz → foco → pavios
+        const energizados = new Set(m.fios.filter(x => m.interruptores.some(i => i.ligado && i.id === x.chave)).map(x => x.aparelho));
+        for (const v of m.ventos) v.ativo = v.bateria || energizados.has(v.id);
+        for (const l of m.lanternas) l.ativo = l.bateria || energizados.has(l.id);
+        const focos = iluminar(m);
+        for (const o of [...m.dinamites, ...m.canhoes]) {
+            if (o.explodiu || o.disparou) continue;
+            if (o.pavio < 0) { if (noFoco(o.ret, focos) && ++o.calor >= AQUECER) o.pavio = o.p.tipo === 'canhao' ? PAVIO_CANHAO : PAVIO_DINAMITE; }
+            else if (o.pavio-- === 0) { if (o.p.tipo === 'canhao') disparar(m, o); else explodir(m, o); }
+        }
+        // moinhos: vento nas pás faz girar (e não para mais)
+        for (const mo of m.moinhos) {
+            if (m.ratosAtivos.has(mo.id)) continue;
+            const ventando = m.ventos.some(v => v.ativo && naZona(mo.eixo[0], mo.eixo[1], v, PAS / 2))
+                || m.foles.some(fo => fo.sopro > 0 && naZona(mo.eixo[0], mo.eixo[1], fo.vento, PAS / 2));
+            if (ventando && m.ar > 0) m.ratosAtivos.add(mo.id);
+        }
+
         const vivas = m.bolas.filter(b => !b.estourou);
         for (let k = 0; k < SUBPASSOS; k++) {
             for (const b of vivas) {
                 if (b.estourou) continue;
                 b.vy += m.gravidade * (b.g + (ehBexiga(b) ? EMPUXO_BEXIGA * (1 - m.ar) : 0)) * f;
-                for (const v of m.ventos) empurrarVento(b, v, FORCA_VENTO * m.ar, f);
+                for (const v of m.ventos) if (v.ativo) empurrarVento(b, v, FORCA_VENTO * m.ar, f);
                 for (const fo of m.foles) if (fo.sopro > 0) empurrarVento(b, fo.vento, FORCA_FOLE * m.ar, f);
                 const arrasto = Math.pow(b.arrasto, f * m.ar);
                 b.vx *= arrasto; b.vy *= arrasto;
                 b.x += b.vx * f; b.y += b.vy * f;
+                b.pvy = b.vy;   // velocidade antes de bater (a gangorra mede o impacto com ela)
                 for (const s of m.segs) colidir(b, s);
             }
             for (let i = 0; i < vivas.length; i++) for (let j = i + 1; j < vivas.length; j++) {
                 if (!vivas[i].estourou && !vivas[j].estourou) colidirBolas(vivas[i], vivas[j]);
             }
+            virarGangorras(m, vivas);
 
             // bola bateu num dos cabos do fole (faces largas; encostou agora): ele sopra.
             // Vale dos dois lados, então o fole girado de ponta-cabeça funciona igual.
@@ -313,6 +524,26 @@
                     if (toca) fo.tocando.add(i); else fo.tocando.delete(i);
                 });
             }
+
+            // luva de boxe: bola encostou na metade de trás (o botão) → soco no que estiver na frente
+            for (const l of m.luvas) {
+                if (l.socando > 0) l.socando--;
+                if (l.recarga > 0) { l.recarga--; continue; }
+                const botao = vivas.some(b => !b.estourou && encosta(b, l.ret) && paraLocal(l.ret.p, b.x, b.y)[0] * l.d < 0);
+                if (!botao) continue;
+                l.recarga = RECARGA_SOCO * SUBPASSOS; l.socando = 15 * SUBPASSOS; l.socos++;
+                for (const b of vivas) {
+                    if (b.estourou) continue;
+                    const [lx, ly] = paraLocal(l.ret.p, b.x, b.y), frente = lx * l.d - LUVA.w / 2;
+                    if (frente < -b.r || frente > ALCANCE_SOCO + b.r || Math.abs(ly) > ALTURA_SOCO / 2 + b.r) continue;
+                    if (ehBexiga(b)) { b.estourou = true; continue; }
+                    const v = Math.min(12, FORCA_SOCO / Math.sqrt(b.massa));
+                    b.vx = l.ux * v; b.vy = l.uy * v - 1;
+                }
+            }
+
+            // interruptor: bola encostou → liga (e fica ligado); bexiga é leve demais para apertar
+            for (const it of m.interruptores) if (!it.ligado && vivas.some(b => !b.estourou && !ehBexiga(b) && encosta(b, it.ret))) it.ligado = true;
 
             // bola encostou na gaiola: o rato começa a correr (e não para mais)
             for (const r of m.ratos) {
@@ -349,6 +580,8 @@
             }
             for (const fo of m.foles) if (fo.sopro > 0) fo.sopro--;
         }
+        // bola que saiu da tela (a bala do canhão, por exemplo) some
+        for (const b of m.bolas) if (!b.estourou && (b.x < -50 || b.x > W + 50 || b.y > H + 50)) b.estourou = true;
         m.quadro++;
         if (objetivoCumprido(m)) { if (++m.dentro >= 20) m.resolvido = true; }
         else m.dentro = 0;
@@ -364,8 +597,9 @@
 
     const api = {
         W, H, BOLAS, ALCANCE_VENTO, ALTURA_VENTO, ALCANCE_FOLE, ALTURA_FOLE, ESTEIRA, GAIOLA, FOLE, TESOURA, CORREIA_MAX,
+        GANGORRA, LUVA, INTERRUPTOR, FIO_MAX, MOINHO, PAS, LANTERNA, LUPA, FOCO, DINAMITE, CANHAO, RAIO_EXPLOSAO,
         segmentosDe, engrenagem, pontasCorreia, paredesCano, bolasDoNivel, sobrepoe, criarMundo, passo, simular,
-        girarPt, paraLocal, tamanho,
+        girarPt, paraLocal, tamanho, pontasGangorra, eixoMoinho, iluminar,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else raiz.TimFisica = api;

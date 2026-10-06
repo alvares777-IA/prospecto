@@ -158,6 +158,130 @@ const relato = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg);
         'continua resolvendo na Lua, em Júpiter, no vácuo e com ar denso');
 }
 
+// Fases 7 a 16: cada uma resolve com a montagem de referência (só posições da grade,
+// sem encavalar), não resolve sem peças, e cada peça da montagem é necessária.
+function fase(i, solucao, extras = {}) {
+    const n = NIVEIS[i];
+    console.log(`${i + 1}. ${n.titulo}`);
+    const valida = p => !p.some(q => F.sobrepoe(q, n, p));
+    relato(!ok(n, []), 'sem peças não resolve');
+    relato(valida(solucao) && ok(n, solucao), 'a montagem de referência resolve');
+    // a caixa tem exatamente as peças da montagem (fio/correia/bateria contam como peças)
+    const conta = {};
+    for (const p of solucao) conta[p.tipo] = (conta[p.tipo] || 0) + 1;
+    for (const p of solucao) if (p.ligado) conta.bateria = (conta.bateria || 0) + 1;
+    relato(Object.entries(n.caixa).every(([t, q]) => conta[t] === q) && Object.keys(conta).every(t => n.caixa[t]), 'a montagem usa exatamente as peças da caixa');
+    const presas = p => solucao.filter(q => (q.tipo === 'correia' || q.tipo === 'fio') && (q.de === p.id || q.para === p.id));
+    const faltando = solucao.filter(p => p.tipo !== 'correia' && p.tipo !== 'fio').map(p => solucao.filter(q => q !== p && !presas(p).includes(q)))
+        .concat(solucao.filter(p => p.tipo === 'correia' || p.tipo === 'fio').map(p => solucao.filter(q => q !== p)));
+    relato(faltando.every(p => !ok(n, p)), 'faltando qualquer peça não resolve');
+    for (const [msg, cond] of Object.entries(extras)) relato(cond(n, valida), msg);
+}
+const contaBoas = (n, valida, gerar) => { let boas = 0; for (const p of gerar()) if (valida(p) && ok(n, p)) boas++; return boas; };
+
+fase(6, [{ tipo: 'gangorra', x: 140, y: 370, espelho: true }, { tipo: 'gangorra', x: 510, y: 370, espelho: true }], {
+    'gangorra sem espelhar (tênis voa para o lado errado) não resolve': n => !ok(n, [{ tipo: 'gangorra', x: 140, y: 370, espelho: true }, { tipo: 'gangorra', x: 510, y: 370 }]),
+    'a gangorra da direita funciona em mais de uma posição': (n, v) => contaBoas(n, v, function* () {
+        for (let x = 450; x <= 560; x += 10) for (const y of [360, 370]) yield [{ tipo: 'gangorra', x: 140, y: 370, espelho: true }, { tipo: 'gangorra', x, y, espelho: true }];
+    }) >= 2,
+});
+fase(7, [{ tipo: 'luva', x: 500, y: 140, dir: -1 }, { tipo: 'gangorra', x: 250, y: 370 }], {
+    'luva virada para o lado errado não resolve': n => !ok(n, [{ tipo: 'luva', x: 500, y: 140, dir: 1 }, { tipo: 'gangorra', x: 250, y: 370 }]),
+    'gangorra espelhada (beisebol voa para a direita) não resolve': n => !ok(n, [{ tipo: 'luva', x: 500, y: 140, dir: -1 }, { tipo: 'gangorra', x: 250, y: 370, espelho: true }]),
+});
+{
+    const T = (x, y, ang) => ({ tipo: 'trampolim', x, y, ang });
+    fase(8, [T(50, 380, 10), T(270, 370, 5), T(380, 370, 5)], {
+        'o último trampolim funciona em várias posições': (n, v) => contaBoas(n, v, function* () {
+            for (let x = 350; x <= 470; x += 10) for (const y of [370, 380]) for (let a = -20; a <= 10; a += 5) yield [T(50, 380, 10), T(270, 370, 5), T(x, y, a)];
+        }) >= 10,
+        'um trampolim só, em qualquer lugar, não resolve': (n, v) => contaBoas(n, v, function* () {
+            for (let x = 40; x <= 600; x += 20) for (let y = 140; y <= 380; y += 20) for (let a = -60; a <= 60; a += 10) yield [T(x, y, a)];
+        }) === 0,
+    });
+}
+{
+    const sol = [
+        { tipo: 'moinho', id: 'm1', x: 170, y: 320 }, { tipo: 'correia', id: 'c1', de: 'm1', para: 'g1' },
+        { tipo: 'moinho', id: 'm2', x: 500, y: 360 }, { tipo: 'correia', id: 'c2', de: 'm2', para: 'g2' },
+        { tipo: 'ventilador', id: 'v1', x: 420, y: 340, dir: 1, ligado: true },
+    ];
+    fase(9, sol, {
+        'ventilador sem bateria não gira o moinho': n => !ok(n, sol.map(p => p.tipo === 'ventilador' ? { ...p, ligado: false } : p)),
+        'no vácuo não há vento: o moinho não gira': n => !F.simular(n, sol, { ar: 0 }).resolvido,
+    });
+}
+{
+    const sol = [
+        { tipo: 'rampa', x: 70, y: 340, ang: 20, len: 120 },
+        { tipo: 'interruptor', id: 'i1', x: 480, y: 380 },
+        { tipo: 'ventilador', id: 'v1', x: 610, y: 270, dir: -1 }, { tipo: 'ventilador', id: 'v2', x: 420, y: 180, dir: -1 },
+        { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' }, { tipo: 'fio', id: 'f2', de: 'i1', para: 'v2' },
+    ];
+    fase(10, sol, {
+        'ventiladores virados para a direita não resolvem': n => !ok(n, sol.map(p => p.tipo === 'ventilador' ? { ...p, dir: 1 } : p)),
+        'fio comprido demais (interruptor longe) fica solto': n => {
+            const longe = sol.map(p => p.tipo === 'interruptor' ? { ...p, x: 60 } : p);
+            return F.pontasCorreia(longe[4], [...n.fixas, ...longe]).comprimento > F.FIO_MAX && !ok(n, longe);
+        },
+        'os ventiladores funcionam em várias posições': (n, v) => contaBoas(n, v, function* () {
+            for (let x = 590; x <= 620; x += 10) for (let y = 260; y <= 290; y += 10) for (let x2 = 410; x2 <= 460; x2 += 10) for (let y2 = 170; y2 <= 200; y2 += 10)
+                yield [sol[0], sol[1], { ...sol[2], x, y }, { ...sol[3], x: x2, y: y2 }, sol[4], sol[5]];
+        }) >= 30,
+    });
+}
+{
+    const sol = [{ tipo: 'rampa', x: 140, y: 300, ang: 20, len: 120 }, { tipo: 'fio', id: 'f1', de: 'i1', para: 'l1' }, { tipo: 'lupa', x: 490, y: 220 }];
+    fase(11, sol, {
+        'lupa fora do facho não acende a dinamite': n => !ok(n, [sol[0], sol[1], { tipo: 'lupa', x: 490, y: 260 }]),
+        'lupa longe demais (foco antes da dinamite) não acende': n => !ok(n, [sol[0], sol[1], { tipo: 'lupa', x: 400, y: 220 }]),
+    });
+}
+{
+    const mk = (cx, cy, ang) => [
+        { tipo: 'interruptor', id: 'i1', x: 40, y: 380 }, { tipo: 'lanterna', id: 'l1', x: cx - 140, y: cy, dir: 1 },
+        { tipo: 'fio', id: 'f1', de: 'i1', para: 'l1' }, { tipo: 'lupa', x: cx - 70, y: cy }, { tipo: 'canhao', x: cx, y: cy, dir: 1, ang },
+    ];
+    fase(12, mk(200, 200, -45), {
+        'canhão na horizontal acerta o muro': n => !ok(n, mk(200, 200, 0)),
+        'há várias miras que funcionam': (n, v) => contaBoas(n, v, function* () {
+            for (let cx = 160; cx <= 280; cx += 20) for (let cy = 200; cy <= 370; cy += 30) for (let a = -70; a <= -20; a += 5) yield mk(cx, cy, a);
+        }) >= 5,
+    });
+}
+{
+    const D = (x, y) => ({ tipo: 'dinamite', x, y });
+    const sol = [{ tipo: 'lupa', x: 260, y: 250 }, D(330, 250), D(250, 190), D(410, 320)];
+    fase(13, sol, {
+        'duas dinamites (uma no foco) não quebram os dois caixotes': (n, v) => contaBoas(n, v, function* () {
+            for (let lx = 100; lx <= 560; lx += 20) for (let x = 150; x <= 620; x += 20) for (let y = 40; y <= 380; y += 20)
+                yield [{ tipo: 'lupa', x: lx, y: 250 }, D(lx + 70, 250), D(x, y)];
+        }) === 0,
+    });
+}
+{
+    const E = (id, x, y, ang = -35, dir = 1) => ({ tipo: 'esteira', id, x, y, ang, dir });
+    const C = (id, de, para) => ({ tipo: 'correia', id, de, para });
+    const sol = [E('e1', 140, 330), E('e2', 250, 260), E('e3', 360, 190), C('c1', 'r1', 'e1'), C('c2', 'r2', 'e2'), C('c3', 'r3', 'e3')];
+    fase(14, sol, {
+        'esteira andando para o lado errado não sobe': n => !ok(n, sol.map(p => p.id === 'e2' ? { ...p, dir: -1 } : p)),
+        'esteiras deitadas (sem inclinar) não sobem o morro': n => !ok(n, sol.map(p => p.tipo === 'esteira' ? { ...p, ang: 0 } : p)),
+    });
+}
+{
+    const sol = [
+        { tipo: 'luva', x: 140, y: 140, dir: 1 }, { tipo: 'gangorra', x: 390, y: 370, espelho: true },
+        { tipo: 'fio', id: 'f1', de: 'i1', para: 'v1' }, { tipo: 'fio', id: 'f2', de: 'i1', para: 'l1' },
+        { tipo: 'moinho', id: 'm1', x: 520, y: 270 }, { tipo: 'correia', id: 'c1', de: 'm1', para: 'g1' },
+        { tipo: 'lupa', x: 310, y: 330 },
+    ];
+    fase(15, sol, {
+        'o moinho funciona em várias posições no vento': (n, v) => contaBoas(n, v, function* () {
+            for (let x = 480; x <= 600; x += 10) for (let y = 250; y <= 290; y += 10) yield [...sol.slice(0, 4), { ...sol[4], x, y }, ...sol.slice(5)];
+        }) >= 20,
+    });
+}
+
 // Painel de ambiente: o padrão (gravidade 1, ar 1) é exatamente a física sem ambiente
 {
     console.log('Ambiente');

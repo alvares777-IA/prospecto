@@ -18,6 +18,7 @@ services:
   # ─────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
+    container_name: prospecto-postgres-1
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}

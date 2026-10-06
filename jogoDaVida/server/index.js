@@ -123,16 +123,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Grava a entrada e FICA TENTANDO até conseguir (docs: "não pode ter falhas").
 // A sala já respondeu ao vivo; isto só destrava o "Iniciar jogo".
-async function gravarEntradaComRetry(socket, codigo, ident, criando) {
+async function gravarEntradaComRetry(socket, codigo, ident, criando, modo) {
     const espera = [1000, 2000, 4000, 8000];
     for (let i = 0; socket.connected; i++) {
         try {
-            const r = await persistencia.registrarEntradaEmSala({ ...ident, salaCodigo: codigo, criando });
+            const r = await persistencia.registrarEntradaEmSala({ ...ident, salaCodigo: codigo, criando, modo });
             if (r.erro) { console.warn(`[persistencia] ${codigo}: ${r.erro}`); return; }
             sala.anotarGravacao(socket.id, { presencaId: r.presencaId, jogadorId: r.jogadorId, anonimo: r.anonimo });
             sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
             sala.marcarEstado(codigo, r.estado);
-            socket.emit('presenca_confirmada', { codigo });
+            socket.emit('presenca_confirmada', { codigo, modo: r.modo });
             // entrou numa sala que já começou -> vai pro hall da porta atual
             if (r.estado === 'em_jogo') {
                 await entregarHall(socket, r.sessaoId, r.jogadorId);
@@ -147,7 +147,7 @@ async function gravarEntradaComRetry(socket, codigo, ident, criando) {
 }
 
 // Coloca o socket na sala (estado vivo + broadcast) e grava atrás.
-function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
+function ingressar(socket, codigo, ident, { criando, souCriador, estado, modo }) {
     const jogador = { nome: ident.apelido, avatar_codigo: ident.avatar_codigo };
     socket.join(codigo);
     sala.entrar(codigo, socket.id, jogador, estado);
@@ -162,7 +162,7 @@ function ingressar(socket, codigo, ident, { criando, souCriador, estado }) {
     io.to(codigo).emit('presentes', { codigo, lista: sala.presentes(codigo) });
     console.log(`[io] ${jogador.nome} ${criando ? 'criou' : 'entrou em'} ${codigo} (${sala.presentes(codigo).length})`);
 
-    gravarEntradaComRetry(socket, codigo, ident, criando);
+    gravarEntradaComRetry(socket, codigo, ident, criando, modo);
 }
 
 // Pedidos de ajuda abertos: `${sessaoId}:${jogadorId do pedinte}` -> { socketId, porta }.
@@ -195,12 +195,14 @@ function limparDoacao(codigo, sessaoId, jogadorId, socketIdPedinte) {
 }
 
 // Garante a partida e coloca o jogador no HALL da porta atual (ele decide
-// quando "prosseguir" para o enigma).
+// quando "prosseguir" para o enigma). No modo livre o "hall" é a LISTA de
+// portas: ele escolhe qual abrir (evento 'escolher_porta').
 async function entregarHall(socket, sessaoId, jogadorId) {
     try {
         const st = await jogo.garantirPartida(sessaoId, jogadorId);
         if (st.terminou) return socket.emit('jogo_terminado', { porta: st.total, energia: st.energia });
         noHall.add(chavePedido(sessaoId, jogadorId));
+        if (st.modo === 'livre') return socket.emit('lista_livre', await jogo.listaLivre(sessaoId, jogadorId));
         socket.emit('hall', { porta: st.porta, total: st.total });
     } catch (err) {
         console.warn('[jogo] entregarHall:', err.message);
@@ -251,7 +253,18 @@ async function transmitirNiveis(codigo, sessaoId) {
 // pune, e avisa. `sock` pode ser null (jogador desconectado quando o tempo
 // do mundo acabou) — o banco anda igual, e ele vê o resultado ao voltar.
 async function aposRespostaSolo(codigo, sessaoId, jogadorId, nome, sock, r) {
-    if (r.correta) {
+    if (r.correta && r.livre) {
+        // modo livre: resolveu a porta escolhida -> volta para a lista (ou concluiu tudo)
+        limparPedido(codigo, sessaoId, jogadorId, sock?.id);
+        io.to(codigo).emit('porta_resolvida_livre', { jogador: nome, socketId: sock?.id, porta: r.porta });
+        if (r.terminou) {
+            await jogo.finalizarPartida(sessaoId, jogadorId);
+            sock?.emit('jogo_terminado', { porta: r.total, energia: r.energia });
+        } else if (sock) {
+            await entregarHall(sock, sessaoId, jogadorId);
+        }
+        transmitirNiveis(codigo, sessaoId);
+    } else if (r.correta) {
         limparPedido(codigo, sessaoId, jogadorId, sock?.id);    // avançou -> pedido some
         limparDoacao(codigo, sessaoId, jogadorId, sock?.id);
         io.to(codigo).emit('porta_alcancada', { jogador: nome, socketId: sock?.id, porta: r.porta });
@@ -325,6 +338,11 @@ mundo.configurar({
                 { servidor: true, equipeCompleta: res.equipeCompleta });
             if (r.erro) return console.warn('[mundo] fim:', r.erro);
             if (codigo) await aposRespostaSolo(codigo, sessaoId, j.jogadorId, j.nome, sock, r);
+            // saiu pela porta sem passar: volta ao hall de espera (quem passou já foi para o hall)
+            if (res.paraHall && !r.correta && sock && (r.energia == null || r.energia > 0)) {
+                await entregarHall(sock, sessaoId, j.jogadorId);
+                if (codigo) transmitirNiveis(codigo, sessaoId);
+            }
         } catch (err) { console.warn('[mundo] fim:', err.message); }
     },
 });
@@ -365,12 +383,13 @@ io.on('connection', (socket) => {
     socket.on('mundo_bau',     noMundo((w, d) => mundo.bau(w.sessaoId, w.ordem, w.jogadorId, d.operacao, d.item, d.modo)));
     socket.on('mundo_socorro', noMundo(w => mundo.pedirSocorro(w.sessaoId, w.ordem, w.jogadorId)));
     socket.on('mundo_socorro_resposta', noMundo((w, d) => mundo.responderSocorro(w.sessaoId, w.ordem, w.jogadorId, d.id, !!d.aceitar)));
-    socket.on('mundo_sair',    noMundo(w => mundo.sair(w.sessaoId, w.ordem, w.jogadorId)));
+    socket.on('mundo_sair',    noMundo((w, d) => mundo.sair(w.sessaoId, w.ordem, w.jogadorId, !!d?.hall)));
 
     socket.on('criar_sala', async (dados) => {
         const ident = identidade(socket, dados);
         if (!ident || !(await avatarOk(ident.avatar_codigo))) return;
-        ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando' });
+        const modo = dados?.modo === 'livre' ? 'livre' : 'desafios';
+        ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando', modo });
     });
 
     socket.on('entrar_sala', async (dados) => {
@@ -474,6 +493,15 @@ io.on('connection', (socket) => {
         catch (err) { console.warn('[jogo] config_jogo:', err.message); ack({}); }
     });
 
+    // Modo livre: o jogo aberto (ex.: TIM) concluiu um nível interno -> marca no banco.
+    socket.on('nivel_concluido', async (dados, ack) => {
+        const responde = typeof ack === 'function' ? ack : () => {};
+        const c = ctxJogo();
+        if (!c) return responde({ erro: 'fora' });
+        try { responde(await jogo.marcarNivel(c.sessaoId, c.eu.jogadorId, dados?.ordem, dados?.nivel)); }
+        catch (err) { console.warn('[jogo] nivel_concluido:', err.message); responde({ erro: 'interno' }); }
+    });
+
     const RITMO_MS = { tiro: 200, grudar: 500, fruta: 800, escudo: 1000 };
     socket.on('energia_jogo', async (dados, ack) => {
         const responde = typeof ack === 'function' ? ack : () => {};
@@ -536,6 +564,20 @@ io.on('connection', (socket) => {
         focosFase.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
         await entregarHall(socket, c.sessaoId, c.eu.jogadorId);
         transmitirNiveis(c.codigo, c.sessaoId);
+    });
+
+    // Modo livre: abrir uma porta da lista. O banco confere se a sala é livre.
+    socket.on('escolher_porta', async (dados) => {
+        const c = ctxJogo();
+        if (!c || socket.data.mundo) return;
+        try {
+            const st = await jogo.escolherPorta(c.sessaoId, c.eu.jogadorId, Number(dados?.ordem));
+            if (!st || st.erro) return;
+            limparPedido(c.codigo, c.sessaoId, c.eu.jogadorId, socket.id);   // pedido era da porta anterior
+            noHall.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
+            socket.emit('meu_enigma', st);
+            transmitirNiveis(c.codigo, c.sessaoId);
+        } catch (err) { console.warn('[jogo] escolher_porta:', err.message); }
     });
 
     socket.on('prosseguir', async () => {

@@ -20,8 +20,15 @@
   button:disabled{background:#334155;cursor:default;opacity:.6}
   button.secundario{background:#334155}
   button[aria-pressed="true"]{background:#facc15;color:#0f172a}
-  button.peca{background:#1e293b;border:1px solid #334155}
-  button.peca.ativa{background:#facc15;color:#0f172a;border-color:#facc15}
+  button.peca{background:#0d1224;border:2px solid #475569;border-radius:10px;padding:3px 3px 0;line-height:0;
+    box-shadow:inset 0 0 0 1px #1e2a45;transition:border-color .12s,transform .12s}
+  button.peca:hover:not(:disabled){border-color:#94a3b8;transform:translateY(-1px)}
+  button.peca.ativa{background:#1e293b;border-color:#facc15;box-shadow:0 0 0 2px rgba(250,204,21,.35)}
+  button.peca:disabled{background:#0d1224;opacity:.35}
+  button.peca img{display:block;width:64px;height:44px}
+  button.peca .qtd{display:block;margin-top:2px;font-size:11px;line-height:14px;font-weight:700;color:#cbd5e1;
+    background:#1e293b;border-radius:0 0 7px 7px}
+  button.peca.ativa .qtd{background:#facc15;color:#0f172a}
   .caixa,.botoes{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
   .ajuda{font-size:12px;color:#64748b;max-width:640px;text-align:center;margin:0}
   .ambiente{display:flex;gap:10px 22px;flex-wrap:wrap;justify-content:center;font-size:13px;color:#cbd5e1;
@@ -31,12 +38,18 @@
   .ambiente input:disabled{opacity:.5}
   .ambiente b{min-width:92px;color:#fde68a;font-weight:600}
   .ambiente .ico{font-size:15px}
+  /* modo livre: escolha do desafio; ✓ = já concluído nesta sala */
+  .seletor{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;max-width:640px;font-size:13px;color:#94a3b8}
+  .seletor button{min-width:38px;padding:4px 8px;background:#1e293b;border:1px solid #334155;font-weight:600}
+  .seletor button.feito{background:#14532d;border-color:#22c55e;color:#bbf7d0}
+  .seletor button.atual{outline:2px solid #facc15;outline-offset:1px}
 </style>
 </head>
 <body>
 <div class="tela">
   <h1>TIM — The Incredible Machine</h1>
   <div class="hud">Desafio: <b id="nivel">1/1</b> &nbsp;·&nbsp; Pontos: <b id="pontos">0</b> &nbsp;·&nbsp; Meta: <b id="meta">300</b></div>
+  <div class="seletor" id="seletor" hidden></div>
   <div class="objetivo" id="objetivo"></div>
   <canvas id="c" width="640" height="400"></canvas>
   <div class="ambiente" role="group" aria-label="Ambiente">
@@ -61,11 +74,14 @@
   </div>
   <div class="aviso info" id="aviso">Escolha uma peça na caixa e clique no cenário para colocá-la.</div>
   <p class="ajuda">Peças colocadas podem ser arrastadas. Clique numa peça para selecionar: arraste a alça ⟳ para girá-la
-  em qualquer ângulo (R gira de 15 em 15°); na gaiola do rato, o ⇋ espelha (F) e a roda passa a girar ao contrário.
+  em qualquer ângulo (R gira de 15 em 15°); o ⇋ espelha (F): vira a peça para o outro lado, e na gaiola do rato a roda gira ao contrário.
   Gravidade e pressão do ar mudam o ambiente: sem ar não há vento e a bexiga cai.
-  A bateria vai em cima de um ventilador — sem ela, ele não liga. O rato só corre quando uma bola encosta na gaiola;
-  a correia (clique no rato e depois na esteira) leva o giro da roda até a engrenagem da esteira.
+  A bateria vai em cima de um ventilador ou lanterna — sem ela (ou um fio de interruptor), não liga. O rato só corre quando uma bola encosta na gaiola;
+  a correia (clique no rato ou moinho e depois na esteira ou engrenagem) leva o giro até lá; o moinho gira com vento nas pás.
+  O fio liga um interruptor (que uma bola aperta) a ventiladores e lanternas.
   O fole sopra quando uma bola cai em cima dele; a tesoura estoura a bexiga que chega nela.
+  Na gangorra, a bola que cai na ponta de cima arremessa a da ponta de baixo. A luva soca quando uma bola encosta no botão de trás.
+  A luz da lanterna passando por uma lupa acende o pavio da dinamite ou do canhão no ponto de foco; a explosão quebra caixotes e acende outras dinamites.
   Peças não podem encavalar umas nas outras. Monte, aperte Iniciar e veja se a máquina funciona.</p>
 </div>
 <script src="fim-jogo.js"></script>
@@ -91,7 +107,8 @@
   const NIVEL_INICIAL = lerParamNivel('nivel', 1);
   const NIVEIS_INICIAL = lerParamNivel('niveis', NIVEL_INICIAL);
 
-  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const cv = document.getElementById('c');
+  let ctx = cv.getContext('2d');   // let: os ícones da caixa desenham numa tela de rascunho com as mesmas funções
   const W = cv.width, H = cv.height;
   function ajustarTamanho() {
     const tela = document.querySelector('.tela');
@@ -105,9 +122,19 @@
 
   const $ = id => document.getElementById(id);
   const NOMES = { rampa: 'Rampa', trampolim: 'Trampolim', ventilador: 'Ventilador', bateria: 'Bateria', esteira: 'Esteira', rato: 'Rato', correia: 'Correia',
-    basquete: 'Bola de basquete', tenis: 'Bola de tênis', boliche: 'Bola de boliche', fole: 'Fole', tesoura: 'Tesoura' };
+    basquete: 'Bola de basquete', tenis: 'Bola de tênis', boliche: 'Bola de boliche', fole: 'Fole', tesoura: 'Tesoura',
+    beisebol: 'Bola de beisebol', bala: 'Bala de canhão', gangorra: 'Gangorra', luva: 'Luva de boxe', interruptor: 'Interruptor',
+    fio: 'Fio', moinho: 'Moinho', lanterna: 'Lanterna', lupa: 'Lupa', dinamite: 'Dinamite', canhao: 'Canhão' };
   const ehBola = p => !!F.BOLAS[p.tipo];
-  const GIRAVEIS = ['rampa', 'trampolim', 'ventilador', 'esteira', 'fole', 'tesoura', 'rato'];   // ganham a alça ⟳
+  const GIRAVEIS = ['rampa', 'trampolim', 'ventilador', 'esteira', 'fole', 'tesoura', 'rato', 'luva', 'lanterna', 'canhao'];   // ganham a alça ⟳
+  // Ligações: a correia leva o giro de um rato/moinho até uma esteira/engrenagem; o fio leva a
+  // energia de um interruptor até ventiladores/lanternas (um interruptor pode ter vários fios).
+  const LIGACOES = {
+    correia: { fontes: ['rato', 'moinho'], alvos: ['esteira', 'engrenagem'], max: F.CORREIA_MAX, variasPorFonte: false },
+    fio: { fontes: ['interruptor'], alvos: ['ventilador', 'lanterna'], max: F.FIO_MAX, variasPorFonte: true },
+  };
+  const ehLigacao = p => !!LIGACOES[p.tipo];
+  const COM_ID = ['rato', 'esteira', 'moinho', 'interruptor', 'ventilador', 'lanterna'];   // peças que recebem correia/fio
   const PASSO_GIRO = 5;   // graus: a alça "encaixa" de 5 em 5
   const GW = F.GAIOLA.w, GH = F.GAIOLA.h;
   const LENTA = 4;        // câmera lenta: 1 passo de física a cada 4 quadros
@@ -118,8 +145,18 @@
   let mundo = null, rodando = false, venceuEste = false, particulas = [];
   let camLenta = false, acumulado = 0;
   let pecasDaVitoria = null, ambienteDaVitoria = null, reprisando = false;   // "ver de novo": a montagem que resolveu
-  const ESPELHAVEIS = ['rato'];   // ganham o ícone ⇋ (espelhar)
+  // ganham o ícone ⇋ (espelhar): gaiola, gangorra e moinho trocam `espelho`; as que apontam para um lado trocam `dir`
+  const ESPELHAVEIS = ['rato', 'gangorra', 'moinho', 'ventilador', 'fole', 'tesoura', 'luva', 'lanterna', 'canhao'];
+  const ESPELHO_PROPRIO = ['rato', 'gangorra', 'moinho'];
   let ambiente = { gravidade: 1, ar: 1 };
+  // Modo livre (sala do jogoDaVida): escolhe qualquer desafio; os concluídos ficam
+  // gravados no servidor e voltam no `config`. Pontos = 100 por desafio concluído.
+  let modoLivre = false, concluidos = new Set();
+  const PONTOS_DESAFIO = 100;
+  const proximoPendente = depois => {
+    for (let k = 1; k <= niveis; k++) { const n = ((depois - 1 + k) % niveis) + 1; if (!concluidos.has(n)) return n; }
+    return null;
+  };
 
   // ── painel de ambiente: gravidade e pressão do ar ──
   const MARCAS_GRAVIDADE = [[0, 'espaço'], [0.17, 'Lua'], [1, 'Terra'], [2.5, 'Júpiter']];
@@ -155,20 +192,45 @@
     estouro: () => { bip(900, 0.03, 0, 'square', 0.25); bip(120, 0.08, 0.02, 'sawtooth', 0.15); },
     venceu: () => { bip(523, 0.09); bip(659, 0.09, 0.09); bip(784, 0.09, 0.18); bip(1047, 0.25, 0.27); },
     falhou: () => { bip(300, 0.14); bip(200, 0.22, 0.12); },
+    bum: () => { bip(70, 0.35, 0, 'sawtooth', 0.3); bip(45, 0.45, 0.05, 'square', 0.2); },
+    tiro: () => { bip(110, 0.18, 0, 'sawtooth', 0.28); bip(60, 0.25, 0.04, 'square', 0.15); },
+    soco: () => bip(140, 0.07, 0, 'square', 0.2),
+    gangorra: () => bip(240, 0.06, 0, 'triangle', 0.16),
+    clique: () => { bip(1200, 0.02, 0, 'square', 0.12); bip(800, 0.03, 0.03, 'square', 0.1); },
   };
 
   function avisar(t, tipo) { $('aviso').className = 'aviso ' + (tipo || 'info'); $('aviso').textContent = t; }
   function atualizarHud() {
     $('pontos').textContent = pontos;
-    $('nivel').textContent = nivel + '/' + niveis;
+    $('nivel').textContent = nivel + '/' + niveis + (modoLivre ? ` · concluídos ${concluidos.size}/${niveis}` : '');
     $('btnEnviar').disabled = resolvido || pontos <= 0;
   }
 
   // ── desafio ──
   function novoJogo() {
     FimJogo.esconder();
-    nivel = 1; pontos = 0; fimDeJogo = false; resolvido = false;
+    fimDeJogo = false; resolvido = false;
+    if (modoLivre) { nivel = proximoPendente(niveis) || 1; pontos = concluidos.size * PONTOS_DESAFIO; }
+    else { nivel = 1; pontos = 0; }
     carregarDesafio();
+  }
+
+  // Botões 1..N para escolher o desafio (só no modo livre).
+  function renderSeletor() {
+    const el = $('seletor');
+    el.hidden = !modoLivre;
+    if (!modoLivre) return;
+    el.innerHTML = '<span>Escolha o desafio:</span>';
+    for (let n = 1; n <= niveis; n++) {
+      const b = document.createElement('button');
+      const feito = concluidos.has(n);
+      b.className = (feito ? 'feito' : '') + (n === nivel ? ' atual' : '');
+      b.textContent = (feito ? '✓ ' : '') + n;
+      b.title = `Desafio ${n}: ${DESAFIOS[n - 1].titulo}${feito ? ' — concluído' : ''}`;
+      b.disabled = rodando;
+      b.onclick = () => { if (rodando) return; FimJogo.esconder(); fimDeJogo = false; nivel = n; carregarDesafio(); };
+      el.appendChild(b);
+    }
   }
 
   function carregarDesafio() {
@@ -179,10 +241,68 @@
     pecasDaVitoria = null; ambienteDaVitoria = null; reprisando = false;
     ambiente = { gravidade: 1, ar: 1, ...(desafio.ambiente || {}) };
     mostrarAmbiente();
-    $('objetivo').textContent = `Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
+    $('objetivo').textContent = `${modoLivre && concluidos.has(nivel) ? '✓ ' : ''}Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
     renderCaixa(); atualizarBotoes(); atualizarHud();
     avisar('Escolha uma peça na caixa e clique no cenário para colocá-la.', 'info');
     ajustarTamanho();
+  }
+
+  // Ícones da caixa: cada peça é desenhada com as mesmas funções do cenário numa tela
+  // de rascunho, recortada no tamanho do desenho e encaixada no ícone (fica em cache).
+  const ICONE = { w: 64, h: 44 }, icones = {};
+  function iconeDe(tipo) {
+    if (icones[tipo]) return icones[tipo];
+    const rasc = document.createElement('canvas'); rasc.width = 240; rasc.height = 180;
+    const principal = ctx;
+    ctx = rasc.getContext('2d');
+    try { desenharIcone(tipo, 120, 90); } finally { ctx = principal; }
+    // recorta a área desenhada (pixels não transparentes)
+    const px = rasc.getContext('2d').getImageData(0, 0, rasc.width, rasc.height).data;
+    let x0 = rasc.width, y0 = rasc.height, x1 = 0, y1 = 0;
+    for (let y = 0; y < rasc.height; y++) for (let x = 0; x < rasc.width; x++) {
+      if (px[(y * rasc.width + x) * 4 + 3] > 20) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    }
+    const ic = document.createElement('canvas'), escalaPx = 2;   // 2x para ficar nítido em telas densas
+    ic.width = ICONE.w * escalaPx; ic.height = ICONE.h * escalaPx;
+    const c = ic.getContext('2d');
+    if (x1 >= x0) {
+      const w = x1 - x0 + 1, h = y1 - y0 + 1, folga = 6 * escalaPx;
+      const k = Math.min((ic.width - 2 * folga) / w, (ic.height - 2 * folga) / h, 2.2 * escalaPx);
+      c.imageSmoothingQuality = 'high';
+      c.drawImage(rasc, x0, y0, w, h, (ic.width - w * k) / 2, (ic.height - h * k) / 2, w * k, h * k);
+    }
+    return (icones[tipo] = ic.toDataURL());
+  }
+  function desenharIcone(tipo, x, y) {
+    if (F.BOLAS[tipo]) return desenharBola({ ...F.BOLAS[tipo], tipo, x, y });
+    if (tipo === 'bateria') {   // a mesma bateria que aparece em cima do ventilador, maior
+      ctx.fillStyle = '#16a34a'; ctx.fillRect(x - 18, y - 10, 36, 20);
+      ctx.fillStyle = '#e2e8f0'; ctx.fillRect(x + 18, y - 5, 5, 10);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center'; ctx.fillText('+ −', x, y + 5); ctx.textAlign = 'start';
+      return;
+    }
+    if (tipo === 'correia') {   // correia esticada entre duas engrenagens
+      desenharCorreia([x - 30, y], [x + 30, y], 0, false, false, false);
+      desenharEngrenagem(x - 30, y, 8, 0); desenharEngrenagem(x + 30, y, 8, 0);
+      return;
+    }
+    if (tipo === 'fio') return desenharFio([x - 30, y - 6], [x + 30, y - 6], false, false);
+    const p = novaPeca(tipo, x, y);
+    if (tipo === 'ventilador') desenharVentilador(p, 0);
+    else if (tipo === 'rampa') desenharRampa({ ...p, ang: -20 });
+    else if (tipo === 'trampolim') desenharTrampolim(p);
+    else if (tipo === 'esteira') desenharEsteira(p, 0, false, false);
+    else if (tipo === 'rato') desenharRato(p, 0, false, false);
+    else if (tipo === 'fole') desenharFole(p, false, false);
+    else if (tipo === 'tesoura') desenharTesoura(p, false);
+    else if (tipo === 'gangorra') desenharGangorra(p, -1, false);
+    else if (tipo === 'luva') desenharLuva(p, false, false);
+    else if (tipo === 'interruptor') desenharInterruptor(p, false, false);
+    else if (tipo === 'moinho') desenharMoinho(p, 0, false, false);
+    else if (tipo === 'lanterna') desenharLanterna(p, false, false);
+    else if (tipo === 'lupa') desenharLupa(p, false);
+    else if (tipo === 'dinamite') desenharDinamite(p, false, 0, false);
+    else if (tipo === 'canhao') desenharCanhao(p, false, 0, false);
   }
 
   function renderCaixa() {
@@ -190,11 +310,16 @@
     for (const [tipo, qtd] of Object.entries(caixa)) {
       const b = document.createElement('button');
       b.className = 'peca' + (modo === tipo ? ' ativa' : '');
-      b.textContent = `${NOMES[tipo]} ×${qtd}`;
+      b.title = NOMES[tipo]; b.setAttribute('aria-label', `${NOMES[tipo]}, ${qtd} na caixa`);
+      const ic = document.createElement('img');   // o mesmo desenho que a peça tem no cenário
+      ic.src = iconeDe(tipo); ic.alt = ''; ic.width = ICONE.w; ic.height = ICONE.h;
+      const q = document.createElement('span'); q.className = 'qtd'; q.textContent = '×' + qtd;
+      b.append(ic, q);
       b.disabled = qtd <= 0 || rodando || !!pecasDaVitoria;
       b.onclick = () => { modo = modo === tipo ? null : tipo; selecionada = null; correiaInicio = null; renderCaixa(); atualizarBotoes();
-        if (modo === 'bateria') avisar('Clique em cima de um ventilador para ligar a bateria nele.', 'info');
-        else if (modo === 'correia') avisar('Clique num rato e depois na esteira que ele vai mover (ou ao contrário).', 'info');
+        if (modo === 'bateria') avisar('Clique em cima de um ventilador (ou lanterna) para ligar a bateria nele.', 'info');
+        else if (modo === 'correia') avisar('Clique num rato (ou moinho) e depois na esteira ou engrenagem que ele vai mover.', 'info');
+        else if (modo === 'fio') avisar('Clique num interruptor e depois no ventilador ou lanterna que ele vai ligar.', 'info');
         else if (modo === 'rato') avisar('Clique no cenário pra colocar a gaiola do rato onde uma bola vai encostar.', 'info');
         else if (modo) avisar(`Clique no cenário para colocar: ${NOMES[modo]}.`, 'info'); };
       el.appendChild(b);
@@ -209,11 +334,14 @@
     $('btnIniciar').hidden = venceu;
     $('btnReplay').hidden = $('btnProximo').hidden = !venceu;
     $('btnReplay').disabled = rodando;
-    $('btnProximo').textContent = nivel < niveis ? 'Próximo desafio →' : 'Ver resultado →';
+    $('btnProximo').textContent = modoLivre
+      ? (proximoPendente(nivel) ? 'Próximo desafio →' : 'Ver resultado →')
+      : (nivel < niveis ? 'Próximo desafio →' : 'Ver resultado →');
     $('btnRemover').disabled = !editavel || !selecionada;
     $('btnLimpar').disabled = !editavel;
     $('gravidade').disabled = $('ar').disabled = !editavel;
     cv.style.cursor = !editavel ? 'default' : modo ? 'copy' : 'pointer';
+    renderSeletor();
   }
 
   const snap = v => Math.round(v / 10) * 10;
@@ -226,6 +354,9 @@
     if (tipo === 'rato') return { tipo, x, y, ang: 0 };
     if (tipo === 'fole') return { tipo, x, y, dir: 1, ang: 0 };
     if (tipo === 'tesoura') return { tipo, x, y, dir: 1, ang: 0 };
+    if (['luva', 'canhao'].includes(tipo)) return { tipo, x, y, dir: 1, ang: 0 };
+    if (tipo === 'lanterna') return { tipo, x, y, dir: 1, ang: 0, ligado: false };
+    if (['gangorra', 'interruptor', 'moinho', 'lupa', 'dinamite'].includes(tipo)) return { tipo, x, y };
     if (F.BOLAS[tipo]) return { tipo, x, y };
   }
   const livre = (p, lista) => !F.sobrepoe(p, desafio, lista);
@@ -246,8 +377,15 @@
     if (p.tipo === 'fole') return Math.abs(x - p.x) <= F.FOLE.w / 2 + 6 && Math.abs(y - p.y) <= F.FOLE.h / 2 + 8;
     if (p.tipo === 'tesoura') return Math.abs(x - p.x) <= F.TESOURA.w / 2 + 4 && Math.abs(y - p.y) <= F.TESOURA.h / 2 + 6;
     if (p.tipo === 'engrenagem') return Math.hypot(x - p.x, y - p.y) <= (p.r || 18) + 3;
+    if (['luva', 'interruptor', 'lanterna', 'dinamite', 'canhao'].includes(p.tipo)) {
+      const { w, h } = F.tamanho(p);
+      return Math.abs(x - p.x) <= w / 2 + 4 && Math.abs(y - p.y) <= h / 2 + 4;
+    }
+    if (p.tipo === 'moinho') return Math.abs(x - p.x) <= F.MOINHO.w / 2 + 4 && y >= p.y - F.MOINHO.h / 2 - F.PAS && y <= p.y + F.MOINHO.h / 2;
+    if (p.tipo === 'gangorra') return Math.abs(x - p.x) <= F.GANGORRA.meio + 2 && y >= p.y - 22 && y <= p.y + F.GANGORRA.apoio + 2;
+    if (p.tipo === 'lupa') return Math.hypot(x - p.x, y - p.y) <= F.LUPA + 6;
     if (ehBola(p)) return Math.hypot(x - p.x, y - p.y) <= F.BOLAS[p.tipo].r + 5;
-    if (p.tipo === 'correia') {
+    if (ehLigacao(p)) {
       const pc = F.pontasCorreia(p, todas());
       return !!pc && pertoDoSegmento(x, y, ...pc.ga, ...pc.gb, 8);
     }
@@ -258,11 +396,11 @@
     return false;
   }
   // peças colocadas: primeiro as "de corpo", depois as correias (que passam por cima de tudo)
-  const pecaEm = (x, y) => [...pecas].reverse().find(p => p.tipo !== 'correia' && acerta(p, x, y))
-      || [...pecas].reverse().find(p => p.tipo === 'correia' && acerta(p, x, y));
-  // rato ou esteira (fixa ou colocada) onde a correia pode se prender
-  const poliaEm = (x, y) => [...todas()].reverse().find(p => ['rato', 'esteira', 'engrenagem'].includes(p.tipo) && acerta(p, x, y));
-  const temCorreia = p => todas().some(c => c.tipo === 'correia' && (c.de === p.id || c.para === p.id));
+  const pecaEm = (x, y) => [...pecas].reverse().find(p => !ehLigacao(p) && acerta(p, x, y))
+      || [...pecas].reverse().find(p => ehLigacao(p) && acerta(p, x, y));
+  // peça (fixa ou colocada) onde a correia/o fio do `modo` pode se prender
+  const poliaEm = (x, y, tipo) => [...todas()].reverse().find(p => [...LIGACOES[tipo].fontes, ...LIGACOES[tipo].alvos].includes(p.tipo) && acerta(p, x, y));
+  const temLigacao = (p, tipo) => todas().some(c => c.tipo === tipo && (c.de === p.id || c.para === p.id));
 
   // Alça ⟳ da peça selecionada: na ponta da rampa, ou "acima" das outras (gira junto com a peça).
   const girável = p => !!p && GIRAVEIS.includes(p.tipo);
@@ -273,15 +411,19 @@
   const naAlca = (p, x, y) => girável(p) && Math.hypot(x - pontoAlca(p)[0], y - pontoAlca(p)[1]) <= 11;
   // Ícone ⇋ (espelhar) ao lado da gaiola do rato.
   const espelhável = p => !!p && ESPELHAVEIS.includes(p.tipo);
-  const pontoEspelho = p => F.girarPt(p, (F.tamanho(p).w || 0) / 2 + 18, 0);
+  const pontoEspelho = p => F.girarPt(p, (F.tamanho(p)?.w ?? 2 * F.GANGORRA.meio) / 2 + 18, 0);
   const noEspelho = (p, x, y) => espelhável(p) && Math.hypot(x - pontoEspelho(p)[0], y - pontoEspelho(p)[1]) <= 11;
   function espelhar() {
     const p = selecionada;
     if (rodando || pecasDaVitoria || !espelhável(p)) return;
-    p.espelho = !p.espelho;
-    if (!livre(p, pecas)) { p.espelho = !p.espelho; return avisar('Espelhada assim ela encosta em outra peça.', 'erro'); }
+    const trocar = () => { if (ESPELHO_PROPRIO.includes(p.tipo)) p.espelho = !p.espelho; else p.dir = -(p.dir || 1); };
+    trocar();
+    if (!livre(p, pecas)) { trocar(); return avisar('Espelhada assim ela encosta em outra peça.', 'erro'); }
     som.por();
-    avisar(p.espelho ? 'Gaiola espelhada: a roda agora gira ao contrário.' : 'Gaiola de volta ao normal.', 'info');
+    if (p.tipo === 'rato') avisar(p.espelho ? 'Gaiola espelhada: a roda agora gira ao contrário.' : 'Gaiola de volta ao normal.', 'info');
+    else if (p.tipo === 'moinho') avisar(p.espelho ? 'Moinho espelhado: gira ao contrário.' : 'Moinho de volta ao normal.', 'info');
+    else if (p.tipo === 'gangorra') avisar(`Gangorra com a ponta ${p.espelho ? 'direita' : 'esquerda'} embaixo.`, 'info');
+    else avisar(`${NOMES[p.tipo]} virado para a ${p.dir > 0 ? 'direita' : 'esquerda'}.`, 'info');
   }
   const normalizar = a => ((Math.round(a) % 360) + 540) % 360 - 180;   // (-180, 180]
   function mudarAngulo(p, ang) {   // só gira para um ângulo onde a peça não encavale em nada
@@ -296,22 +438,27 @@
     return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
   }
 
-  function prenderCorreia(m) {
-    const alvo = poliaEm(m.x, m.y);
-    if (!alvo) return avisar('Clique num rato ou numa esteira pra prender a correia.', 'erro');
-    if (temCorreia(alvo)) return avisar(alvo.tipo === 'rato' ? 'Esse rato já tem correia.' : 'Essa esteira já tem correia.', 'erro');
+  function prenderCorreia(m) {   // correia ou fio, conforme o `modo`
+    const tipo = modo, L = LIGACOES[tipo], nome = tipo === 'fio' ? 'o fio' : 'a correia';
+    const ehFonte = p => L.fontes.includes(p.tipo);
+    const alvo = poliaEm(m.x, m.y, tipo);
+    if (!alvo) return avisar(tipo === 'fio' ? 'Clique num interruptor, ventilador ou lanterna pra prender o fio.'
+      : 'Clique num rato, moinho, esteira ou engrenagem pra prender a correia.', 'erro');
+    if ((!ehFonte(alvo) || !L.variasPorFonte) && temLigacao(alvo, tipo)) return avisar(`${NOMES[alvo.tipo]}: já tem ${tipo}.`, 'erro');
     if (!correiaInicio || correiaInicio === alvo) {
       correiaInicio = alvo; som.por();
-      return avisar(alvo.tipo === 'rato' ? 'Agora clique na esteira que esse rato vai mover.' : 'Agora clique no rato que vai mover essa esteira.', 'info');
+      return avisar(ehFonte(alvo) ? `Agora clique ${tipo === 'fio' ? 'no ventilador ou lanterna que ele vai ligar' : 'na esteira ou engrenagem que ele vai mover'}.`
+        : `Agora clique ${tipo === 'fio' ? 'no interruptor que vai ligar isso' : 'no rato ou moinho que vai mover isso'}.`, 'info');
     }
-    if ((alvo.tipo === 'rato') === (correiaInicio.tipo === 'rato')) return avisar('A correia liga um rato a uma esteira (ou engrenagem).', 'erro');
-    const rato = alvo.tipo === 'rato' ? alvo : correiaInicio, movida = alvo.tipo === 'rato' ? correiaInicio : alvo;
-    const c = { tipo: 'correia', id: 'c' + proxId++, de: rato.id, para: movida.id };
-    if (F.pontasCorreia(c, todas()).comprimento > F.CORREIA_MAX) return avisar('Longe demais — a correia não alcança. Aproxime o rato da esteira.', 'erro');
-    pecas.push(c); caixa.correia--; correiaInicio = null; selecionada = c; som.ligar();
-    if (!caixa.correia) modo = null;
+    if (ehFonte(alvo) === ehFonte(correiaInicio)) return avisar(tipo === 'fio' ? 'O fio liga um interruptor a um ventilador ou lanterna.'
+      : 'A correia liga um rato (ou moinho) a uma esteira (ou engrenagem).', 'erro');
+    const fonte = ehFonte(alvo) ? alvo : correiaInicio, movida = ehFonte(alvo) ? correiaInicio : alvo;
+    const c = { tipo, id: (tipo === 'fio' ? 'f' : 'c') + proxId++, de: fonte.id, para: movida.id };
+    if (F.pontasCorreia(c, todas()).comprimento > L.max) return avisar(`Longe demais — ${nome} não alcança. Aproxime as peças.`, 'erro');
+    pecas.push(c); caixa[tipo]--; correiaInicio = null; selecionada = c; som.ligar();
+    if (!caixa[tipo]) modo = null;
     renderCaixa(); atualizarBotoes();
-    avisar('Correia presa! Quando o rato correr, a esteira anda.', 'ok');
+    avisar(tipo === 'fio' ? 'Fio ligado! Quando uma bola apertar o interruptor, o aparelho liga.' : 'Correia presa! Quando a roda girar, a esteira anda.', 'ok');
   }
 
   cv.addEventListener('mousedown', e => {
@@ -320,18 +467,20 @@
     if (!modo && naAlca(selecionada, m.x, m.y)) { girandoAlca = selecionada; return; }
     if (!modo && noEspelho(selecionada, m.x, m.y)) return espelhar();
     if (modo === 'bateria') {
-      const v = pecas.find(p => p.tipo === 'ventilador' && acerta(p, m.x, m.y));
-      if (!v) return avisar('A bateria precisa ir em cima de um ventilador.', 'erro');
-      if (v.ligado) return avisar('Esse ventilador já tem bateria.', 'erro');
+      const v = pecas.find(p => (p.tipo === 'ventilador' || p.tipo === 'lanterna') && acerta(p, m.x, m.y));
+      if (!v) return avisar('A bateria precisa ir em cima de um ventilador ou lanterna.', 'erro');
+      if (v.ligado) return avisar(`${NOMES[v.tipo]}: já tem bateria.`, 'erro');
       v.ligado = true; caixa.bateria--; som.ligar();
       if (!caixa.bateria) modo = null;
       renderCaixa(); atualizarBotoes();
-      return avisar('Ventilador ligado! Ele vai soprar quando a máquina rodar.', 'ok');
+      return avisar(v.tipo === 'lanterna' ? 'Lanterna acesa! Ela vai iluminar quando a máquina rodar.' : 'Ventilador ligado! Ele vai soprar quando a máquina rodar.', 'ok');
     }
-    if (modo === 'correia') return prenderCorreia(m);
+    if (LIGACOES[modo]) return prenderCorreia(m);
     if (modo) {
       const p = novaPeca(modo, snap(m.x), snap(m.y));
-      if (p.tipo === 'rato' || p.tipo === 'esteira') p.id = 'p' + proxId++;
+      if (COM_ID.includes(p.tipo)) p.id = 'p' + proxId++;
+      // não cabe como está, mas cabe espelhada (ex.: gangorra com a outra ponta embaixo)? coloca espelhada
+      if (!livre(p, [...pecas, p]) && ESPELHO_PROPRIO.includes(p.tipo)) { p.espelho = true; if (!livre(p, [...pecas, p])) p.espelho = false; }
       if (!livre(p, [...pecas, p])) return avisar('Não cabe aí — encosta em outra peça ou bola. Escolha um lugar livre.', 'erro');
       pecas.push(p); caixa[modo]--; som.por();
       selecionada = p;
@@ -341,12 +490,20 @@
       if (p.tipo === 'rato') return avisar('Gaiola colocada. Uma bola precisa encostar nela; ligue uma correia até a esteira. ⇋ (ou F) espelha: a roda gira ao contrário.', 'info');
       if (p.tipo === 'fole') return avisar('Fole colocado — ele sopra quando uma bola cai em cima. Arraste a alça ⟳ para apontar o sopro.', 'info');
       if (p.tipo === 'tesoura') return avisar('Tesoura colocada — arraste a alça ⟳ para apontar as lâminas.', 'info');
+      if (p.tipo === 'gangorra') return avisar(`Gangorra colocada — a ponta ${p.espelho ? 'direita' : 'esquerda'} está embaixo; ⇋ (F) troca o lado.`, 'info');
+      if (p.tipo === 'luva') return avisar('Luva colocada — uma bola no botão de trás faz ela socar para a frente. ⇋ vira, ⟳ gira.', 'info');
+      if (p.tipo === 'interruptor') return avisar('Interruptor colocado — ligue fios até ventiladores ou lanternas.', 'info');
+      if (p.tipo === 'moinho') return avisar('Moinho colocado — ponha vento nas pás e ligue uma correia até uma esteira ou engrenagem.', 'info');
+      if (p.tipo === 'lanterna') return avisar('Lanterna colocada — precisa de bateria ou do fio de um interruptor. ⟳ aponta o facho.', 'info');
+      if (p.tipo === 'lupa') return avisar(`Lupa colocada — a luz que passa por ela se junta ${F.FOCO} px adiante.`, 'info');
+      if (p.tipo === 'dinamite') return avisar('Dinamite colocada — acende com a luz da lupa ou com outra explosão por perto.', 'info');
+      if (p.tipo === 'canhao') return avisar('Canhão colocado — acende o pavio com a lupa. ⟳ mira, ⇋ vira.', 'info');
       if (ehBola(p)) return avisar('Bola colocada — ela cai quando a máquina rodar.', 'info');
       return avisar('Peça colocada. Arraste para ajustar; a alça ⟳ gira.', 'info');
     }
     const p = pecaEm(m.x, m.y);
     selecionada = p || null;
-    if (p && p.tipo !== 'correia') arrastando = { p, dx: p.x - m.x, dy: p.y - m.y };
+    if (p && !ehLigacao(p)) arrastando = { p, dx: p.x - m.x, dy: p.y - m.y };
     atualizarBotoes();
   });
   cv.addEventListener('mousemove', e => {
@@ -380,12 +537,12 @@
   function remover() {
     const p = selecionada;
     if (!p || rodando) return;
-    // tirar um rato ou esteira solta as correias presas nele
-    const soltas = p.tipo === 'correia' ? [p] : pecas.filter(c => c.tipo === 'correia' && (c.de === p.id || c.para === p.id));
+    // tirar uma peça solta as correias e fios presos nela
+    const soltas = ehLigacao(p) ? [p] : pecas.filter(c => ehLigacao(c) && (c.de === p.id || c.para === p.id));
     pecas = pecas.filter(x => x !== p && !soltas.includes(x));
-    if (p.tipo !== 'correia') caixa[p.tipo]++;
-    if (soltas.length) caixa.correia = (caixa.correia || 0) + soltas.length;
-    if (p.tipo === 'ventilador' && p.ligado) caixa.bateria++;
+    if (!ehLigacao(p)) caixa[p.tipo]++;
+    for (const c of soltas) caixa[c.tipo] = (caixa[c.tipo] || 0) + 1;
+    if ((p.tipo === 'ventilador' || p.tipo === 'lanterna') && p.ligado) caixa.bateria++;
     selecionada = null; som.tirar(); renderCaixa(); atualizarBotoes();
   }
   $('btnRemover').onclick = remover;
@@ -401,7 +558,7 @@
   function rodar() {
     modo = null; selecionada = null; correiaInicio = null; venceuEste = false;
     mundo = F.criarMundo(desafio, pecas.map(p => ({ ...p })), ambiente);
-    rodando = true; particulas = []; ratosCorrendo = 0; estouros = []; acumulado = 0;
+    rodando = true; particulas = []; ratosCorrendo = 0; estouros = []; acumulado = 0; contagem = { socos: 0, viradas: 0, ligados: 0 };
     som.iniciar(); renderCaixa(); atualizarBotoes();
   }
   $('btnIniciar').onclick = () => {
@@ -421,7 +578,10 @@
   };
   $('btnProximo').onclick = () => {
     if (rodando || !pecasDaVitoria) return;
-    if (nivel < niveis) { nivel++; carregarDesafio(); return; }
+    if (modoLivre) {   // vai para o próximo desafio ainda não concluído
+      const n = proximoPendente(nivel);
+      if (n) { nivel = n; carregarDesafio(); return; }
+    } else if (nivel < niveis) { nivel++; carregarDesafio(); return; }
     fimDeJogo = true; pecasDaVitoria = null; atualizarBotoes();
     avisar(`Todos os ${niveis} desafio(s) resolvidos! Pontuação: ${pontos}.`, 'ok');
     FimJogo.mostrar({
@@ -443,8 +603,17 @@
       return avisar('Funcionou de novo! Quer ver mais uma vez ou continuar?', 'ok');
     }
     pecasDaVitoria = pecas.map(p => ({ ...p })); ambienteDaVitoria = { ...ambiente };
-    pontos += 100; som.venceu(); atualizarHud(); atualizarBotoes();
-    avisar(`Desafio ${nivel} resolvido! +100. Veja de novo (dá pra ligar a câmera lenta) ou continue.`, 'ok');
+    if (modoLivre && concluidos.has(nivel)) {   // refez um desafio já concluído: não vale ponto de novo
+      som.venceu(); atualizarBotoes();
+      return avisar(`Desafio ${nivel} resolvido de novo (já estava concluído — sem pontos extras).`, 'ok');
+    }
+    if (modoLivre) {
+      concluidos.add(nivel);
+      if (embutido) window.parent.postMessage({ tipo: 'nivel_concluido', nivel }, location.origin);
+    }
+    pontos += PONTOS_DESAFIO; som.venceu(); atualizarHud(); atualizarBotoes();
+    $('objetivo').textContent = `${modoLivre ? '✓ ' : ''}Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
+    avisar(`Desafio ${nivel} ${modoLivre ? 'concluído' : 'resolvido'}! +${PONTOS_DESAFIO}. Veja de novo (dá pra ligar a câmera lenta) ou continue.`, 'ok');
   }
 
   function enviarTentativa() {
@@ -460,7 +629,21 @@
     if (d.tipo === 'config') {
       const n = Number(d.valores?.niveis);
       if (Number.isFinite(n) && n >= 1) niveis = Math.min(Math.floor(n), DESAFIOS.length);
-      atualizarHud();
+      if (d.valores?.livre) {
+        modoLivre = true;
+        concluidos = new Set((d.valores.concluidos || []).map(Number));
+        pontos = concluidos.size * PONTOS_DESAFIO;
+        // ainda não mexeu em nada: já abre no primeiro desafio pendente
+        if (!pecas.length && !rodando && !pecasDaVitoria) { nivel = proximoPendente(niveis) || 1; carregarDesafio(); }
+      }
+      atualizarHud(); atualizarBotoes(); ajustarTamanho();
+      return;
+    }
+    if (d.tipo === 'niveis_concluidos') {   // confirmação do servidor (fonte da verdade das marcas)
+      if (!Array.isArray(d.concluidos)) return;
+      concluidos = new Set(d.concluidos.map(Number));
+      pontos = concluidos.size * PONTOS_DESAFIO;
+      atualizarHud(); renderSeletor();
       return;
     }
     if (d.tipo !== 'resultado') return;
@@ -628,6 +811,116 @@
     }
     ctx.setLineDash([]); ctx.lineDashOffset = 0;
   }
+  function desenharGangorra(p, lado, destaque) {   // tábua sobre o apoio; `lado` = ponta que está embaixo
+    const [e, d] = F.pontasGangorra({ ...p, lado }), a = F.GANGORRA.apoio;
+    ctx.fillStyle = '#64748b'; ctx.beginPath(); ctx.moveTo(p.x, p.y + 2); ctx.lineTo(p.x - 11, p.y + a); ctx.lineTo(p.x + 11, p.y + a); ctx.closePath(); ctx.fill();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(...e); ctx.lineTo(...d); ctx.stroke();
+    ctx.strokeStyle = destaque ? '#fde68a' : '#d6a35c'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(...e); ctx.lineTo(...d); ctx.stroke();
+    const L = Math.hypot(d[0] - e[0], d[1] - e[1]), nx = (d[1] - e[1]) / L * 7, ny = -(d[0] - e[0]) / L * 7;   // batentes
+    ctx.strokeStyle = '#5b3a1e'; ctx.lineWidth = 3;
+    for (const q of [e, d]) { ctx.beginPath(); ctx.moveTo(...q); ctx.lineTo(q[0] + nx, q[1] + ny); ctx.stroke(); }
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = '#e2e8f0'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+  function desenharLuva(p, soco, destaque) {   // caixa com mola e luva vermelha apontando para `dir`; botão atrás
+    const d = p.dir || 1, w = F.LUVA.w, h = F.LUVA.h, estica = soco ? 26 : 0;
+    ctx.fillStyle = destaque ? '#fde68a' : '#78350f'; ctx.fillRect(p.x - w / 2, p.y - h / 2, w, h);
+    ctx.fillStyle = '#ef4444'; ctx.fillRect(d > 0 ? p.x - w / 2 - 4 : p.x + w / 2, p.y - 5, 4, 10);   // botão
+    ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1.5; ctx.beginPath();   // mola
+    const x0 = p.x + d * (w / 2 - 6), x1 = p.x + d * (w / 2 + 2 + estica);
+    for (let i = 0; i <= 8; i++) ctx.lineTo(x0 + (x1 - x0) * i / 8, p.y + (i % 2 ? -4 : 4));
+    ctx.stroke();
+    ctx.fillStyle = '#dc2626'; ctx.beginPath(); ctx.ellipse(x1 + d * 7, p.y, 8, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#b91c1c'; ctx.beginPath(); ctx.ellipse(x1 + d * 6, p.y - 7, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  function desenharInterruptor(p, ligado, destaque) {
+    const w = F.INTERRUPTOR.w, h = F.INTERRUPTOR.h;
+    ctx.fillStyle = destaque ? '#fde68a' : '#334155'; ctx.fillRect(p.x - w / 2, p.y - h / 2, w, h);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(p.x - 7, p.y - 4, 14, 8);
+    ctx.strokeStyle = ligado ? '#22c55e' : '#e5e7eb'; ctx.lineWidth = 3; ctx.lineCap = 'round';   // alavanca
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + (ligado ? 7 : -7), p.y - 9); ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = ligado ? '#22c55e' : '#7f1d1d'; ctx.beginPath(); ctx.arc(p.x + w / 2 - 4, p.y + h / 2 - 4, 2, 0, Math.PI * 2); ctx.fill();
+  }
+  function desenharMoinho(p, t, girando, destaque) {   // torre + pás no eixo (no referencial da peça)
+    const w = F.MOINHO.w, h = F.MOINHO.h;
+    ctx.fillStyle = destaque ? '#fde68a' : '#a16207';
+    ctx.beginPath(); ctx.moveTo(p.x - w / 2, p.y + h / 2); ctx.lineTo(p.x - w / 2 + 4, p.y - h / 2); ctx.lineTo(p.x + w / 2 - 4, p.y - h / 2); ctx.lineTo(p.x + w / 2, p.y + h / 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#451a03'; ctx.fillRect(p.x - 4, p.y + h / 2 - 12, 8, 12);
+    const ex = p.x, ey = p.y - h / 2 + 6, giro = girando ? t / 120 : 0.3;
+    ctx.fillStyle = '#e7e5e4'; ctx.strokeStyle = '#78716c'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      const a = giro + i * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex + c * F.PAS - s * 4, ey + s * F.PAS + c * 4); ctx.lineTo(ex + c * F.PAS, ey + s * F.PAS); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    desenharEngrenagem(ex, ey, 5, giro);
+  }
+  function desenharLanterna(p, acesa, destaque) {
+    const d = p.dir || 1, w = F.LANTERNA.w, h = F.LANTERNA.h;
+    ctx.fillStyle = destaque ? '#fde68a' : '#475569'; ctx.fillRect(p.x - w / 2, p.y - h / 2 + 2, w - 6, h - 4);
+    ctx.fillStyle = '#94a3b8'; ctx.beginPath();   // cabeça larga na frente
+    const xf = p.x + d * (w / 2 - 6);
+    ctx.moveTo(xf, p.y - h / 2 + 2); ctx.lineTo(p.x + d * w / 2, p.y - h / 2); ctx.lineTo(p.x + d * w / 2, p.y + h / 2); ctx.lineTo(xf, p.y + h / 2 - 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = acesa ? '#fef08a' : '#1e293b'; ctx.fillRect(p.x + d * (w / 2 - 1) - 1, p.y - h / 2 + 2, 2, h - 4);
+    if (p.ligado) { ctx.fillStyle = '#16a34a'; ctx.fillRect(p.x - 8, p.y - h / 2 - 7, 14, 7); }   // bateria em cima
+  }
+  function desenharLupa(p, destaque) {
+    ctx.strokeStyle = '#78350f'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(p.x + 9, p.y + 11); ctx.lineTo(p.x + 16, p.y + 22); ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = 'rgba(186,230,253,.25)'; ctx.beginPath(); ctx.arc(p.x, p.y, F.LUPA, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = destaque ? '#fde68a' : '#cbd5e1'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.ellipse(p.x - 5, p.y - 5, 2, 4, 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+  function desenharDinamite(p, aceso, t, destaque) {   // três bananas amarradas, pavio para cima
+    const w = F.DINAMITE.w, h = F.DINAMITE.h;
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = destaque ? '#fde68a' : '#dc2626'; ctx.fillRect(p.x - w / 2 + i * w / 3 + 0.5, p.y - h / 2, w / 3 - 1, h); }
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(p.x - w / 2, p.y - 2, w, 3);
+    ctx.strokeStyle = '#d6d3d1'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.x, p.y - h / 2); ctx.quadraticCurveTo(p.x + 5, p.y - h / 2 - 6, p.x + 2, p.y - h / 2 - 11); ctx.stroke();
+    if (aceso) faisca(p.x + 2, p.y - h / 2 - 11, t);
+  }
+  function faisca(x, y, t) {
+    ctx.fillStyle = (Math.floor(t / 60) % 2) ? '#facc15' : '#f97316';
+    for (let i = 0; i < 5; i++) { const a = i * 1.26 + t / 90; ctx.beginPath(); ctx.arc(x + Math.cos(a) * 3, y + Math.sin(a) * 3, 1.6, 0, Math.PI * 2); ctx.fill(); }
+  }
+  function desenharCanhao(p, aceso, t, destaque) {   // cano apontando para `dir`, rodas embaixo, pavio atrás
+    const d = p.dir || 1, w = F.CANHAO.w, h = F.CANHAO.h;
+    ctx.fillStyle = destaque ? '#fde68a' : '#1f2937';
+    ctx.beginPath(); ctx.moveTo(p.x - d * w / 2, p.y - h / 2 + 2); ctx.lineTo(p.x + d * w / 2, p.y - h / 2 + 5); ctx.lineTo(p.x + d * w / 2, p.y + h / 2 - 5); ctx.lineTo(p.x - d * w / 2, p.y + h / 2 - 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#374151'; ctx.fillRect(d > 0 ? p.x + w / 2 - 6 : p.x - w / 2, p.y - h / 2 + 3, 6, h - 6);
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(p.x + d * w / 2, p.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#92400e'; ctx.beginPath(); ctx.arc(p.x - d * 6, p.y + h / 2 - 2, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d6d3d1'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.x - d * w / 2, p.y - 2); ctx.lineTo(p.x - d * (w / 2 + 7), p.y - 8); ctx.stroke();
+    if (aceso) faisca(p.x - d * (w / 2 + 7), p.y - 8, t);
+  }
+  function desenharCaixote(p) {
+    ctx.fillStyle = '#b45309'; ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.strokeStyle = '#78350f'; ctx.lineWidth = 2; ctx.strokeRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2);
+    ctx.lineWidth = 1.5;
+    for (let y = p.y; y < p.y + p.h - 4; y += 30) {   // tábuas com X
+      const y2 = Math.min(y + 30, p.y + p.h);
+      ctx.beginPath(); ctx.moveTo(p.x, y2); ctx.lineTo(p.x + p.w, y2); ctx.moveTo(p.x + 2, y + 2); ctx.lineTo(p.x + p.w - 2, y2 - 2); ctx.moveTo(p.x + p.w - 2, y + 2); ctx.lineTo(p.x + 2, y2 - 2); ctx.stroke();
+    }
+  }
+  function desenharFio(ga, gb, energizado, destaque) {   // cabo elétrico caído entre as duas tomadas
+    const mx = (ga[0] + gb[0]) / 2, my = Math.max(ga[1], gb[1]) + 18;
+    ctx.strokeStyle = destaque ? '#fde68a' : energizado ? '#facc15' : '#f97316'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(...ga); ctx.quadraticCurveTo(mx, my, ...gb); ctx.stroke();
+    ctx.fillStyle = '#e5e7eb'; for (const q of [ga, gb]) { ctx.beginPath(); ctx.arc(q[0], q[1], 2.5, 0, Math.PI * 2); ctx.fill(); }
+  }
+  function desenharLuz(l) {   // facho amarelo; depois da lupa, um cone fechando no foco
+    ctx.strokeStyle = 'rgba(254,240,138,.45)'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(...l.de); ctx.lineTo(...l.ate); ctx.stroke();
+    if (l.lupa) {
+      ctx.fillStyle = 'rgba(254,240,138,.35)'; ctx.beginPath();
+      ctx.moveTo(l.lupa[0], l.lupa[1] - 6); ctx.lineTo(...l.cone); ctx.lineTo(l.lupa[0], l.lupa[1] + 6); ctx.closePath(); ctx.fill();
+      if (l.foco) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(...l.foco, 3, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+  function desenharExplosao(e, idade) {   // bola de fogo crescendo e sumindo (o tiro do canhão é menor)
+    const k = idade / 30, r = (e.tiro ? 16 : F.RAIO_EXPLOSAO * 0.7) * Math.min(1, k * 2);
+    ctx.fillStyle = `rgba(249,115,22,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(254,240,138,${0.8 * (1 - k)})`; ctx.beginPath(); ctx.arc(e.x, e.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
+  }
   function desenharEstrela(o, t) {
     const cx = o.x + o.w / 2, cy = o.y + o.h / 2, R = 20 + Math.sin(t / 300) * 2;
     ctx.fillStyle = 'rgba(250,204,21,.12)'; ctx.fillRect(o.x, o.y, o.w, o.h);
@@ -642,8 +935,14 @@
       ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.ellipse(b.x - 4, b.y - 5, 3, 5, -0.4, 0, Math.PI * 2); ctx.fill();
       return;
     }
-    ctx.fillStyle = b.tipo === 'boliche' ? '#2563eb' : b.tipo === 'tenis' ? '#a3e635' : '#ea580c';
+    ctx.fillStyle = { boliche: '#2563eb', tenis: '#a3e635', beisebol: '#f5f5f4', bala: '#111827' }[b.tipo] || '#ea580c';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    if (b.tipo === 'beisebol') {   // costura vermelha
+      ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(b.x - b.r * 1.1, b.y, b.r * 0.8, -0.8, 0.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.x + b.r * 1.1, b.y, b.r * 0.8, Math.PI - 0.8, Math.PI + 0.8); ctx.stroke();
+    }
+    if (b.tipo === 'bala') { ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.beginPath(); ctx.arc(b.x - 3, b.y - 3, 2.5, 0, Math.PI * 2); ctx.fill(); }
     if (b.tipo === 'tenis') {   // costura
       ctx.strokeStyle = '#f7fee7'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(b.x - b.r, b.y, b.r * 0.8, -0.9, 0.9); ctx.stroke();
@@ -700,6 +999,10 @@
     else if (p.tipo === 'tesoura') ctx.strokeRect(p.x - F.TESOURA.w / 2 - 4, p.y - F.TESOURA.h / 2 - 4, F.TESOURA.w + 8, F.TESOURA.h + 8);
     else if (ehBola(p)) { const r = F.BOLAS[p.tipo].r + 5; ctx.strokeRect(p.x - r, p.y - r, 2 * r, 2 * r); }
     else if (p.tipo === 'ventilador') ctx.strokeRect(p.x - 19, p.y - 28, 38, 47);
+    else if (p.tipo === 'gangorra') ctx.strokeRect(p.x - F.GANGORRA.meio - 4, p.y - 22, 2 * F.GANGORRA.meio + 8, F.GANGORRA.apoio + 26);
+    else if (p.tipo === 'moinho') ctx.strokeRect(p.x - F.PAS - 4, p.y - F.MOINHO.h / 2 - F.PAS, 2 * F.PAS + 8, F.MOINHO.h + F.PAS + 4);
+    else if (p.tipo === 'lupa') ctx.strokeRect(p.x - F.LUPA - 4, p.y - F.LUPA - 4, 2 * F.LUPA + 8, 2 * F.LUPA + 14);
+    else if (F.tamanho(p)) { const { w, h } = F.tamanho(p); ctx.strokeRect(p.x - w / 2 - 6, p.y - h / 2 - 6, w + 12, h + 12); }
     ctx.setLineDash([]);
   }
 
@@ -720,19 +1023,29 @@
     const editando = !rodando;
     const foles = lista.filter(p => p.tipo === 'fole');   // mesma ordem de mundo.foles
     const soprando = p => !!mundo && mundo.foles[foles.indexOf(p)]?.sopro > 0;
+    // estado da peça na simulação: o mundo guarda as peças de cada tipo na mesma ordem de todas()
+    const doMundo = (lista2, p) => mundo && mundo[lista2]?.[lista.filter(q => q.tipo === p.tipo).indexOf(p)];
+    const ESTADO = { gangorra: 'gangorras', luva: 'luvas', interruptor: 'interruptores', lanterna: 'lanternas', dinamite: 'dinamites', canhao: 'canhoes', caixote: 'caixotes', ventilador: 'ventos' };
+    const estado = p => ESTADO[p.tipo] ? doMundo(ESTADO[p.tipo], p) : null;
+    const objetivos = o => o.tipo === 'todos' ? o.lista.flatMap(objetivos) : [o];
 
-    if (desafio.objetivo.tipo === 'zona') desenharEstrela(desafio.objetivo, t);
+    for (const o of objetivos(desafio.objetivo)) if (o.tipo === 'zona') desenharEstrela(o, t);
+    if (mundo) for (const l of mundo.luz) desenharLuz(l);
     for (const p of lista) {
-      const sel = editando && p === selecionada;
+      const sel = editando && p === selecionada, e = estado(p);
       if (ehBola(p)) { if (sel) caixaSelecao(p); continue; }   // bolas colocadas: desenhadas junto com as outras bolas
-      // desenha no referencial da peça: girada (ang) e/ou espelhada (gaiola do rato)
-      const giro = p.tipo !== 'rampa' && p.ang ? p.ang * Math.PI / 180 : 0, transforma = giro || p.espelho;
+      if (e && (e.explodiu || e.quebrou)) continue;              // dinamite que explodiu, caixote quebrado
+      // desenha no referencial da peça: girada (ang) e/ou espelhada (gaiola do rato, moinho)
+      const espelha = p.espelho && (p.tipo === 'rato' || p.tipo === 'moinho');
+      const giro = p.tipo !== 'rampa' && p.ang ? p.ang * Math.PI / 180 : 0, transforma = giro || espelha;
       if (transforma) {
         ctx.save(); ctx.translate(p.x, p.y);
         if (giro) ctx.rotate(giro);
-        if (p.espelho) ctx.scale(-1, 1);
+        if (espelha) ctx.scale(-1, 1);
         ctx.translate(-p.x, -p.y);
       }
+      const ponta = editando && p === correiaInicio;   // 1º clique da correia/fio
+      const aceso = e && (e.pavio >= 0 && !e.disparou);
       if (p.tipo === 'bloco') desenharBloco(p);
       else if (p.tipo === 'cesto') desenharCesto(p);
       else if (p.tipo === 'cano') desenharCano(p);
@@ -744,6 +1057,15 @@
       else if (p.tipo === 'engrenagem') desenharEngrenagemGrande(p, t, girando(p));
       else if (p.tipo === 'fole') desenharFole(p, soprando(p), sel);
       else if (p.tipo === 'tesoura') desenharTesoura(p, sel);
+      else if (p.tipo === 'gangorra') desenharGangorra(p, e ? e.lado : (p.espelho ? 1 : -1), sel);
+      else if (p.tipo === 'luva') desenharLuva(p, !!e && e.socando > 0, sel);
+      else if (p.tipo === 'interruptor') desenharInterruptor(p, !!e && e.ligado, sel || ponta);
+      else if (p.tipo === 'moinho') desenharMoinho(p, t, ratoAtivo(p), sel || ponta);
+      else if (p.tipo === 'lanterna') desenharLanterna(p, !!e && e.ativo, sel || ponta);
+      else if (p.tipo === 'lupa') desenharLupa(p, sel);
+      else if (p.tipo === 'dinamite') desenharDinamite(p, aceso, t, sel);
+      else if (p.tipo === 'canhao') desenharCanhao(p, aceso, t, sel);
+      else if (p.tipo === 'caixote') desenharCaixote(p);
       if (sel) caixaSelecao(p);
       if (transforma) ctx.restore();
     }
@@ -756,7 +1078,7 @@
         particulas.push({ x, y, vx: d * Math.cos(a) * v, vy: d * Math.sin(a) * v, vida: alcance / 4 });
       };
       if (!camLenta || acumulado === 0) {   // na câmera lenta solta menos, senão o vento vira uma nuvem
-        for (const p of pecas) if (p.tipo === 'ventilador' && p.ligado && Math.random() < 0.6) soltar(p, 15, F.ALTURA_VENTO, F.ALCANCE_VENTO);
+        for (const p of lista) if (p.tipo === 'ventilador' && estado(p)?.ativo && Math.random() < 0.6) soltar(p, 15, F.ALTURA_VENTO, F.ALCANCE_VENTO);
         for (const p of foles) if (soprando(p) && Math.random() < 0.8) soltar(p, F.FOLE.w / 2, F.ALTURA_FOLE * 0.6, F.ALCANCE_FOLE);
       }
       const passoP = camLenta ? 1 / LENTA : 1;
@@ -772,13 +1094,19 @@
     for (const b of (mundo ? mundo.bolas : F.bolasDoNivel(desafio, pecas))) if (!b.estourou) desenharBola(b);
     estouros = estouros.filter(e => t - e.t < 330);
     for (const e of estouros) desenharEstouro(e.x, e.y, (t - e.t) / 16.5);
+    if (mundo) for (const e of mundo.explosoes) { const idade = mundo.quadro - e.quadro; if (idade < 30) desenharExplosao(e, idade); }
 
-    // correias por cima de tudo, como no jogo original
+    // correias e fios por cima de tudo, como no jogo original
     for (const c of lista) {
-      if (c.tipo !== 'correia') continue;
+      if (!ehLigacao(c)) continue;
       const pc = F.pontasCorreia(c, lista);
       if (!pc) continue;
-      const rato = pc.a.tipo === 'rato' ? pc.a : pc.b;
+      if (c.tipo === 'fio') {
+        const chave = pc.a.tipo === 'interruptor' ? pc.a : pc.b;
+        desenharFio(pc.ga, pc.gb, !!estado(chave)?.ligado, editando && c === selecionada);
+        continue;
+      }
+      const rato = LIGACOES.correia.fontes.includes(pc.a.tipo) ? pc.a : pc.b;
       desenharCorreia(pc.ga, pc.gb, t, ratoAtivo(rato), pc.comprimento > F.CORREIA_MAX, editando && c === selecionada);
     }
 
@@ -788,10 +1116,14 @@
 
     // fantasma da peça sendo colocada / da correia sendo esticada
     if (modo && mouse && editando) {
-      if (modo === 'correia') {
+      if (LIGACOES[modo]) {
         if (correiaInicio) {
-          const ga = F.engrenagem(correiaInicio), longe = Math.hypot(mouse.x - ga[0], mouse.y - ga[1]) > F.CORREIA_MAX;
-          ctx.globalAlpha = 0.6; desenharCorreia(ga, [mouse.x, mouse.y], t, false, longe, false); ctx.globalAlpha = 1;
+          const ga = modo === 'fio' ? [correiaInicio.x, correiaInicio.y] : F.engrenagem(correiaInicio);
+          const longe = Math.hypot(mouse.x - ga[0], mouse.y - ga[1]) > LIGACOES[modo].max;
+          ctx.globalAlpha = 0.6;
+          if (modo === 'fio') desenharFio(ga, [mouse.x, mouse.y], false, false);
+          else desenharCorreia(ga, [mouse.x, mouse.y], t, false, longe, false);
+          ctx.globalAlpha = 1;
         }
       } else if (modo !== 'bateria') {
         const f = novaPeca(modo, snap(mouse.x), snap(mouse.y));
@@ -802,6 +1134,14 @@
         else if (f.tipo === 'rato') desenharRato(f, t, false, false);
         else if (f.tipo === 'fole') desenharFole(f, false, false);
         else if (f.tipo === 'tesoura') desenharTesoura(f, false);
+        else if (f.tipo === 'gangorra') desenharGangorra(f, -1, false);
+        else if (f.tipo === 'luva') desenharLuva(f, false, false);
+        else if (f.tipo === 'interruptor') desenharInterruptor(f, false, false);
+        else if (f.tipo === 'moinho') desenharMoinho(f, t, false, false);
+        else if (f.tipo === 'lanterna') desenharLanterna(f, false, false);
+        else if (f.tipo === 'lupa') desenharLupa(f, false);
+        else if (f.tipo === 'dinamite') desenharDinamite(f, false, t, false);
+        else if (f.tipo === 'canhao') desenharCanhao(f, false, t, false);
         else if (ehBola(f)) desenharBola({ ...F.BOLAS[f.tipo], ...f });
         else desenharVentilador(f, t);
         ctx.globalAlpha = 1;
@@ -814,7 +1154,7 @@
     }
   }
 
-  let ultVy = 0, ratosCorrendo = 0, estouros = [];
+  let ultVy = 0, ratosCorrendo = 0, estouros = [], contagem = { socos: 0, viradas: 0, ligados: 0 };
   function laco(t) {
     // câmera lenta: a física só anda 1 passo a cada LENTA quadros (o desenho continua a 60 fps)
     acumulado = rodando ? acumulado + (camLenta ? 1 / LENTA : 1) : 0;
@@ -824,7 +1164,14 @@
       if (ultVy > 1.5 && mundo.bola.vy < 0) som.quique();
       ultVy = mundo.bola.vy;
       if (mundo.ratosAtivos.size > ratosCorrendo) { ratosCorrendo = mundo.ratosAtivos.size; som.ligar(); }
-      for (const b of mundo.bolas) if (b.estourou && !b.visto) { b.visto = true; estouros.push({ x: b.x, y: b.y, t }); som.estouro(); }
+      for (const b of mundo.bolas) if (b.estourou && !b.visto) { b.visto = true; if (b.tipo === 'bexiga' || b.tipo === 'balao') { estouros.push({ x: b.x, y: b.y, t }); som.estouro(); } }
+      for (const e of mundo.explosoes) if (!e.ouvida) { e.ouvida = true; if (e.tiro) som.tiro(); else som.bum(); }
+      const socos = mundo.luvas.reduce((s, l) => s + l.socos, 0), viradas = mundo.gangorras.reduce((s, g) => s + g.viradas, 0);
+      const ligados = mundo.interruptores.filter(i => i.ligado).length;
+      if (socos > contagem.socos) som.soco();
+      if (viradas > contagem.viradas) som.gangorra();
+      if (ligados > contagem.ligados) som.clique();
+      contagem = { socos, viradas, ligados };
       if (mundo.resolvido) aoResolver();
       else if (mundo.esgotou) { parar(); som.falhou(); avisar('Não deu desta vez. Ajuste as peças e tente de novo.', 'erro'); }
     }

@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 
 export const T = {
     GRAMA: 0, ARVORE: 1, PEDRA: 2, MINERIO: 3, ARBUSTO: 4, AGUA: 5,
-    BURACO: 6, TERRA: 7, BAU: 8, TABUA: 9, MURO: 10,
+    BURACO: 6, TERRA: 7, BAU: 8, TABUA: 9, MURO: 10, PORTA: 11,
 };
 const ANDAVEL = new Set([T.GRAMA, T.TERRA, T.BURACO]);
 // bloco -> [tiques para quebrar, item que dá, qtd, bloco que fica no lugar]
@@ -105,6 +105,10 @@ function gerarMapa(semente) {
     const cx = LARG >> 1, cy = ALT >> 1;
     for (let y = cy - 3; y <= cy + 3; y++) for (let x = cx - 4; x <= cx + 4; x++) set(x, y, T.GRAMA);
     set(cx, cy, T.BAU);
+
+    // porta de saída na borda de cima (alinhada ao baú), com a passagem limpa
+    g[cx] = T.PORTA;
+    for (let y = 1; y <= 3; y++) g[y * LARG + cx] = T.GRAMA;
 
     // buracos longe do centro
     for (let i = 0; i < 12; i++) {
@@ -226,7 +230,7 @@ export function minerar(sessaoId, ordem, jogadorId, alvo, item) {
         if (x === j.x && y === j.y && !j.minerando?.escalar) j.minerando = { x, y, escalar: true, prog: 0, precisa: TIQUES_ESCALAR };
         return;
     }
-    const temAcao = MINERAVEL[b] || b === T.BAU;
+    const temAcao = MINERAVEL[b] || b === T.BAU || b === T.PORTA;
     if (temAcao) {
         if (vizinho(j, x, y)) { j.caminho = null; j.querMinerar = null; iniciarAcao(m, j, x, y, item); return; }
         const r = rota(m, j, x, y, true);
@@ -241,7 +245,9 @@ export function minerar(sessaoId, ordem, jogadorId, alvo, item) {
 
 function iniciarAcao(m, j, x, y, item) {
     const b = m.g[idx(x, y)];
-    if (b === T.BAU) {
+    if (b === T.PORTA) {
+        cb.emitirPara(j.socketId, 'mundo_porta', {});
+    } else if (b === T.BAU) {
         if (!ITENS.includes(item)) return;
         if (j.inv[item] < 1) return cb.emitirPara(j.socketId, 'mundo_aviso', { texto: `Você não tem ${item} para depositar.` });
         if (j.minerando?.bau && j.minerando.item === item) return;
@@ -507,8 +513,9 @@ function ato(m, jogador, alvoId, tipoEvento, valor, contexto, carater) {
 }
 
 // ── saída ──────────────────────────────────────────────────────────
-export function sair(sessaoId, ordem, jogadorId) {
+export function sair(sessaoId, ordem, jogadorId, paraHall = false) {
     const a = jogadorAtivo(sessaoId, ordem, jogadorId); if (!a) return;
+    a.j.paraHall = !!paraHall;
     finalizar(a.m, a.j);
 }
 
@@ -539,7 +546,7 @@ function finalizar(m, j) {
     const pontos = pontosDe(j.inv, m.params.valores);
     const equipeCompleta = totalBau(m) >= m.params.metaEquipe;
     m.jogadores.delete(j.jogadorId);
-    cb.aoFim(m.sessaoId, m.ordem, j, { pontos, equipeCompleta, bau: totalBau(m) });
+    cb.aoFim(m.sessaoId, m.ordem, j, { pontos, equipeCompleta, bau: totalBau(m), paraHall: !!j.paraHall });
 }
 
 // ── loop ───────────────────────────────────────────────────────────
@@ -658,6 +665,11 @@ function passoJogador(m, j) {
     let andou = false;
     for (const [dx, dy] of tenta) {
         const nx = j.x + dx, ny = j.y + dy;
+        if (dentro(nx, ny) && m.g[idx(nx, ny)] === T.PORTA) {   // bateu na porta de saída: o cliente pergunta se quer sair
+            j.dir = { dx: 0, dy: 0 }; j.caminho = null;
+            if (!j.portaAte || agora_() > j.portaAte) { j.portaAte = agora_() + 3000; cb.emitirPara(j.socketId, 'mundo_porta', {}); }
+            break;
+        }
         if (!dentro(nx, ny) || !ANDAVEL.has(m.g[idx(nx, ny)])) continue;
         if (dx && dy && (!ANDAVEL.has(m.g[idx(j.x + dx, j.y)]) || !ANDAVEL.has(m.g[idx(j.x, j.y + dy)]))) continue;
         j.x = nx; j.y = ny; j.minerando = null; andou = true;
@@ -674,6 +686,8 @@ function passoJogador(m, j) {
         j.caminho = j.querMinerar ? rota(m, j, j.querMinerar.x, j.querMinerar.y, true) : rota(m, j, fx, fy, false);
     }
 }
+
+const agora_ = () => Date.now();
 
 function passoPedidos(m) {
     const agora = Date.now();

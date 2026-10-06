@@ -737,3 +737,27 @@ ON CONFLICT (escopo, COALESCE(escopo_id, 0), chave) DO NOTHING;
 -- Jogos (tipo 'jogo'): quantas fases/níveis o jogo tem dentro dele (1 = só a
 -- primeira). Chama-se `niveis` para não confundir com `fase` (trecho co-op).
 ALTER TABLE enigma ADD COLUMN IF NOT EXISTS niveis INT NOT NULL DEFAULT 1 CHECK (niveis >= 1);
+
+-- Modo de jogo da sala, escolhido por quem cria:
+--   'desafios' -> sequência de portas (porta N só depois da N-1), como sempre foi;
+--   'livre'    -> todos os enigmas ativos viram portas numa lista; o jogador
+--                 escolhe qualquer uma, em qualquer ordem, e volta à lista.
+-- (Nome diferente de `modo`, que é derrubado acima por ser de outro desenho.)
+ALTER TABLE sessao ADD COLUMN IF NOT EXISTS modo_jogo VARCHAR(10) NOT NULL DEFAULT 'desafios';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessao_modo_jogo_chk') THEN
+    ALTER TABLE sessao ADD CONSTRAINT sessao_modo_jogo_chk CHECK (modo_jogo IN ('desafios','livre'));
+  END IF;
+END $$;
+
+-- Modo livre: desafios internos (níveis) de um jogo que o jogador já
+-- concluiu nesta sala — o jogo (ex.: TIM) deixa escolher qualquer nível e
+-- marca os concluídos. Anônimo some ao sair (CASCADE).
+CREATE TABLE IF NOT EXISTS jogo_nivel (
+  sessao_id   BIGINT       NOT NULL REFERENCES sessao(id)  ON DELETE CASCADE,
+  jogador_id  BIGINT       NOT NULL REFERENCES jogador(id) ON DELETE CASCADE,
+  enigma_id   BIGINT       NOT NULL REFERENCES enigma(id)  ON DELETE CASCADE,
+  nivel       INT          NOT NULL CHECK (nivel >= 1),
+  dt          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  CONSTRAINT pk_jogo_nivel PRIMARY KEY (sessao_id, jogador_id, enigma_id, nivel)
+);
