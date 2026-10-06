@@ -159,6 +159,44 @@
   // gravados no servidor e voltam no `config`. Pontos = 100 por desafio concluído.
   let modoLivre = false, concluidos = new Set();
   const PONTOS_DESAFIO = 100;
+  // Estado em andamento (sala de conta logada): a cada mudança manda um snapshot ao jogoDaVida,
+  // que guarda no servidor e devolve em `config.salvo`. Um snapshot por desafio, para trocar de
+  // desafio (modo livre) sem perder a montagem do outro. Só começa a salvar depois de receber o
+  // config, senão a tela vazia do desafio 1 apagaria o que estava guardado.
+  let salvos = {}, podeSalvar = false, tSalvar = null;
+  function snapshotAtual() {
+    if (!desafio) return;
+    salvos[nivel] = {
+      pecas: pecas.map(p => ({ ...p })), caixa: { ...caixa }, ambiente: { ...ambiente }, proxId,
+      venceu: !!pecasDaVitoria,
+    };
+  }
+  function salvarAgora() {
+    clearTimeout(tSalvar); tSalvar = null;
+    if (!embutido || !podeSalvar || rodando) return;
+    snapshotAtual();
+    window.parent.postMessage({ tipo: 'salvar_estado',
+      estado: { v: 1, nivel, feitos: [...concluidos], niveis: salvos } }, location.origin);
+  }
+  function salvar() { if (embutido && podeSalvar && !tSalvar) tSalvar = setTimeout(salvarAgora, 700); }
+  window.addEventListener('pagehide', salvarAgora);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) salvarAgora(); });
+  // aplica o snapshot do desafio atual (se houver e fizer sentido); devolve true se restaurou
+  function restaurarDesafio() {
+    const sv = salvos[nivel];
+    if (!sv || !Array.isArray(sv.pecas)) return false;
+    try {
+      const ok = p => p && typeof p.tipo === 'string' && (LIGACOES[p.tipo] || (Number.isFinite(p.x) && Number.isFinite(p.y)));
+      pecas = sv.pecas.filter(ok).map(p => ({ ...p }));
+      for (const k of Object.keys(caixa)) if (Number.isFinite(sv.caixa?.[k])) caixa[k] = sv.caixa[k];
+      ambiente = { ...ambiente, ...(sv.ambiente || {}) };
+      proxId = Math.max(proxId, Number(sv.proxId) || 1);
+      if (sv.venceu && concluidos.has(nivel)) {   // a montagem que resolveu: dá para rever ou continuar
+        pecasDaVitoria = pecas.map(p => ({ ...p })); ambienteDaVitoria = { ...ambiente }; venceuEste = true;
+      }
+      return true;
+    } catch (e) { pecas = []; caixa = { ...desafio.caixa }; return false; }
+  }
   const proximoPendente = depois => {
     for (let k = 1; k <= niveis; k++) { const n = ((depois - 1 + k) % niveis) + 1; if (!concluidos.has(n)) return n; }
     return null;
@@ -175,7 +213,7 @@
     $('arTxt').textContent = nomeDe(ambiente.ar, MARCAS_AR);
   }
   for (const [id, marcas] of [['gravidade', MARCAS_GRAVIDADE], ['ar', MARCAS_AR]]) {
-    $(id).addEventListener('input', () => { ambiente = { ...ambiente, [id]: encaixar(Number($(id).value), marcas) }; mostrarAmbiente(); });
+    $(id).addEventListener('input', () => { ambiente = { ...ambiente, [id]: encaixar(Number($(id).value), marcas) }; mostrarAmbiente(); salvar(); });
   }
 
   // ── som ──
@@ -218,9 +256,10 @@
   function novoJogo() {
     FimJogo.esconder();
     fimDeJogo = false; resolvido = false;
-    if (modoLivre) { nivel = proximoPendente(niveis) || 1; pontos = concluidos.size * PONTOS_DESAFIO; }
-    else { nivel = 1; pontos = 0; }
-    carregarDesafio();
+    if (modoLivre) { nivel = proximoPendente(niveis) || 1; }
+    else { nivel = 1; concluidos = new Set(); salvos = {}; }
+    pontos = concluidos.size * PONTOS_DESAFIO;
+    carregarDesafio(true);
   }
 
   // Botões 1..N para escolher o desafio (só no modo livre).
@@ -236,22 +275,26 @@
       b.textContent = (feito ? '✓ ' : '') + n;
       b.title = `Desafio ${n}: ${DESAFIOS[n - 1].titulo}${feito ? ' — concluído' : ''}`;
       b.disabled = rodando;
-      b.onclick = () => { if (rodando) return; FimJogo.esconder(); fimDeJogo = false; nivel = n; carregarDesafio(); };
+      b.onclick = () => { if (rodando) return; snapshotAtual(); FimJogo.esconder(); fimDeJogo = false; nivel = n; carregarDesafio(true); };
       el.appendChild(b);
     }
   }
 
-  function carregarDesafio() {
+  function carregarDesafio(restaurar = false) {
     desafio = DESAFIOS[nivel - 1];
     pecas = [];
     caixa = { ...desafio.caixa };
     modo = null; selecionada = null; correiaInicio = null; mundo = null; rodando = false; venceuEste = false;
     pecasDaVitoria = null; ambienteDaVitoria = null; reprisando = false;
     ambiente = { gravidade: 1, ar: 1, ...(desafio.ambiente || {}) };
+    const restaurou = restaurar && restaurarDesafio();
+    if (!restaurar) delete salvos[nivel];   // "Recomeçar desafio": descarta o que estava guardado
     mostrarAmbiente();
     $('objetivo').textContent = `${modoLivre && concluidos.has(nivel) ? '✓ ' : ''}Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
     renderCaixa(); atualizarBotoes(); atualizarHud();
-    avisar('Escolha uma peça na caixa e clique no cenário para colocá-la.', 'info');
+    avisar(pecasDaVitoria ? `Desafio ${nivel} já resolvido. Veja de novo ou continue.`
+      : restaurou ? 'Continuando de onde você parou.' : 'Escolha uma peça na caixa e clique no cenário para colocá-la.',
+      pecasDaVitoria || restaurou ? 'ok' : 'info');
     ajustarTamanho();
     if (embutido) window.parent.postMessage({ tipo: 'nivel_atual', nivel }, location.origin);
   }
@@ -393,6 +436,7 @@
     $('gravidade').disabled = $('ar').disabled = !editavel || !!desafio.ambiente;
     cv.style.cursor = !editavel ? 'default' : modo ? 'copy' : 'pointer';
     renderSeletor();
+    salvar();
   }
 
   const snap = v => Math.round(v / 10) * 10;
@@ -486,7 +530,7 @@
     const trocar = () => { if (ESPELHO_PROPRIO.includes(p.tipo)) p.espelho = !p.espelho; else p.dir = -(p.dir || 1); };
     trocar();
     if (!livre(p, pecas)) { trocar(); return avisar('Espelhada assim ela encosta em outra peça.', 'erro'); }
-    som.por();
+    som.por(); salvar();
     if (p.tipo === 'rato') avisar(p.espelho ? 'Gaiola espelhada: a roda agora gira ao contrário.' : 'Gaiola de volta ao normal.', 'info');
     else if (p.tipo === 'moinho') avisar(p.espelho ? 'Moinho espelhado: gira ao contrário.' : 'Moinho de volta ao normal.', 'info');
     else if (p.tipo === 'gangorra') avisar(`Gangorra com a ponta ${p.espelho ? 'direita' : 'esquerda'} embaixo.`, 'info');
@@ -637,6 +681,7 @@
   window.addEventListener('mouseup', () => {
     if (girandoAlca) { som.por(); avisar(`${NOMES[girandoAlca.tipo]} girado para ${normalizar(girandoAlca.ang || 0)}°.`, 'info'); }
     arrastando = null; girandoAlca = null;
+    salvar();
   });
   cv.addEventListener('mouseleave', () => { mouse = null; });
 
@@ -644,7 +689,7 @@
     const p = selecionada;
     if (rodando || pecasDaVitoria || !girável(p)) return;
     if (!mudarAngulo(p, (p.ang || 0) + 15)) return avisar('Girada assim ela encosta em outra peça.', 'erro');
-    som.por();
+    som.por(); salvar();
     avisar(`${NOMES[p.tipo]} girado para ${p.ang}°.`, 'info');
   }
   function remover() {
@@ -659,7 +704,7 @@
     selecionada = null; som.tirar(); renderCaixa(); atualizarBotoes();
   }
   $('btnRemover').onclick = remover;
-  $('btnLimpar').onclick = () => { if (!rodando) carregarDesafio(); };
+  $('btnLimpar').onclick = () => { if (!rodando) carregarDesafio(false); };
   window.addEventListener('keydown', e => {
     if (e.key === 'r' || e.key === 'R') girar();
     if (e.key === 'f' || e.key === 'F') espelhar();
@@ -693,8 +738,8 @@
     if (rodando || !pecasDaVitoria) return;
     if (modoLivre) {   // vai para o próximo desafio ainda não concluído
       const n = proximoPendente(nivel);
-      if (n) { nivel = n; carregarDesafio(); return; }
-    } else if (nivel < niveis) { nivel++; carregarDesafio(); return; }
+      if (n) { nivel = n; carregarDesafio(true); return; }
+    } else if (nivel < niveis) { nivel++; carregarDesafio(true); return; }
     fimDeJogo = true; pecasDaVitoria = null; atualizarBotoes();
     avisar(`Todos os ${niveis} desafio(s) resolvidos! Pontuação: ${pontos}.`, 'ok');
     FimJogo.mostrar({
@@ -716,15 +761,14 @@
       return avisar('Funcionou de novo! Quer ver mais uma vez ou continuar?', 'ok');
     }
     pecasDaVitoria = pecas.map(p => ({ ...p })); ambienteDaVitoria = { ...ambiente };
-    if (modoLivre && concluidos.has(nivel)) {   // refez um desafio já concluído: não vale ponto de novo
+    if (concluidos.has(nivel)) {   // refez um desafio já concluído: não vale ponto de novo
       som.venceu(); atualizarBotoes();
       return avisar(`Desafio ${nivel} resolvido de novo (já estava concluído — sem pontos extras).`, 'ok');
     }
-    if (modoLivre) {
-      concluidos.add(nivel);
-      if (embutido) window.parent.postMessage({ tipo: 'nivel_concluido', nivel }, location.origin);
-    }
-    pontos += PONTOS_DESAFIO; som.venceu(); atualizarHud(); atualizarBotoes();
+    concluidos.add(nivel);
+    if (modoLivre && embutido) window.parent.postMessage({ tipo: 'nivel_concluido', nivel }, location.origin);
+    pontos = concluidos.size * PONTOS_DESAFIO; som.venceu(); atualizarHud(); atualizarBotoes();
+    salvarAgora();
     $('objetivo').textContent = `${modoLivre ? '✓ ' : ''}Desafio ${nivel}: ${desafio.titulo} — ${desafio.texto}`;
     avisar(`Desafio ${nivel} ${modoLivre ? 'concluído' : 'resolvido'}! +${PONTOS_DESAFIO}. Veja de novo (dá pra ligar a câmera lenta) ou continue.`, 'ok');
   }
@@ -742,13 +786,21 @@
     if (d.tipo === 'config') {
       const n = Number(d.valores?.niveis);
       if (Number.isFinite(n) && n >= 1) niveis = Math.min(Math.floor(n), DESAFIOS.length);
+      const salvo = d.valores?.salvo && d.valores.salvo.v === 1 ? d.valores.salvo : null;
+      salvos = salvo?.niveis && typeof salvo.niveis === 'object' ? salvo.niveis : {};
+      const valido = k => Number.isInteger(k) && k >= 1 && k <= niveis;
       if (d.valores?.livre) {
         modoLivre = true;
-        concluidos = new Set((d.valores.concluidos || []).map(Number));
-        pontos = concluidos.size * PONTOS_DESAFIO;
-        // ainda não mexeu em nada: já abre no primeiro desafio pendente
-        if (!pecas.length && !rodando && !pecasDaVitoria) { nivel = proximoPendente(niveis) || 1; carregarDesafio(); }
+        concluidos = new Set((d.valores.concluidos || []).map(Number).filter(valido));   // fonte da verdade: servidor
+      } else if (salvo) {
+        concluidos = new Set((salvo.feitos || []).map(Number).filter(valido));
       }
+      pontos = concluidos.size * PONTOS_DESAFIO;
+      // abre onde parou; no livre sem nada guardado, no primeiro desafio pendente
+      const nv = Number(salvo?.nivel);
+      nivel = valido(nv) ? nv : (modoLivre ? (proximoPendente(niveis) || 1) : 1);
+      if (!rodando) carregarDesafio(true);
+      podeSalvar = true;
       atualizarHud(); atualizarBotoes(); ajustarTamanho();
       return;
     }

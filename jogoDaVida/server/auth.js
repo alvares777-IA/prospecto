@@ -60,9 +60,13 @@ export function montarAuth(app) {
     app.use(sessionMiddleware);
     app.use(passport.initialize());
 
-    app.get('/eu', (req, res) => {
+    app.get('/eu', async (req, res) => {
         if (req.session.jogadorId) {
-            res.json({ logado: true, apelido: req.session.apelido, googleAtivo });
+            // retomar: a sala onde ele estava (o cliente entra direto, sem perguntar nada)
+            let retomar = null;
+            try { retomar = await persistencia.resumoRetomada(req.session.jogadorId); }
+            catch (err) { console.warn('[auth] retomada indisponível:', err.message); }
+            res.json({ logado: true, apelido: req.session.apelido, googleAtivo, retomar });
         } else {
             res.json({ logado: false, googleAtivo });
         }

@@ -132,10 +132,10 @@ async function gravarEntradaComRetry(socket, codigo, ident, criando, modo) {
             sala.anotarGravacao(socket.id, { presencaId: r.presencaId, jogadorId: r.jogadorId, anonimo: r.anonimo });
             sala.anotarSala(codigo, { sessaoId: r.sessaoId, souCriador: r.souCriador, socketId: socket.id });
             sala.marcarEstado(codigo, r.estado);
-            socket.emit('presenca_confirmada', { codigo, modo: r.modo });
-            // entrou numa sala que já começou -> vai pro hall da porta atual
+            socket.emit('presenca_confirmada', { codigo, modo: r.modo, souCriador: r.souCriador });
+            // entrou numa sala que já começou -> volta ao lugar onde estava (porta ou hall)
             if (r.estado === 'em_jogo') {
-                await entregarHall(socket, r.sessaoId, r.jogadorId);
+                await retomarLugar(socket, r.sessaoId, r.jogadorId);
                 transmitirNiveis(codigo, r.sessaoId);
             }
             return;
@@ -194,6 +194,20 @@ function limparDoacao(codigo, sessaoId, jogadorId, socketIdPedinte) {
     }
 }
 
+// Entrou (ou voltou) numa sala em jogo: o tempo fora não gasta energia, e ele
+// cai onde estava — dentro da porta que tinha aberta, ou no hall/lista.
+async function retomarLugar(socket, sessaoId, jogadorId) {
+    try {
+        await jogo.retomarEnergia(sessaoId, jogadorId);
+        const st = await jogo.estado(sessaoId, jogadorId);
+        if (st?.noEnigma && !st.terminou && !st.esgotado) {
+            noHall.delete(chavePedido(sessaoId, jogadorId));
+            return socket.emit('meu_enigma', st);
+        }
+    } catch (err) { console.warn('[jogo] retomarLugar:', err.message); }
+    await entregarHall(socket, sessaoId, jogadorId);
+}
+
 // Garante a partida e coloca o jogador no HALL da porta atual (ele decide
 // quando "prosseguir" para o enigma). No modo livre o "hall" é a LISTA de
 // portas: ele escolhe qual abrir (evento 'escolher_porta').
@@ -202,6 +216,7 @@ async function entregarHall(socket, sessaoId, jogadorId) {
         const st = await jogo.garantirPartida(sessaoId, jogadorId);
         if (st.terminou) return socket.emit('jogo_terminado', { porta: st.total, energia: st.energia });
         noHall.add(chavePedido(sessaoId, jogadorId));
+        jogo.marcarLocal(sessaoId, jogadorId, false).catch(() => {});
         if (st.modo === 'livre') return socket.emit('lista_livre', await jogo.listaLivre(sessaoId, jogadorId));
         socket.emit('hall', { porta: st.porta, total: st.total });
     } catch (err) {
@@ -273,6 +288,7 @@ async function aposRespostaSolo(codigo, sessaoId, jogadorId, nome, sock, r) {
             sock?.emit('jogo_terminado', { porta: r.porta - 1, energia: r.energia });
         } else {
             noHall.add(chavePedido(sessaoId, jogadorId));
+            jogo.marcarLocal(sessaoId, jogadorId, false).catch(() => {});
             sock?.emit('hall', { porta: r.porta });   // hall antes da próxima porta
         }
         transmitirNiveis(codigo, sessaoId);
@@ -392,6 +408,31 @@ io.on('connection', (socket) => {
         ingressar(socket, gerarCodigo(), ident, { criando: true, souCriador: true, estado: 'aguardando', modo });
     });
 
+    // Retomar de onde parou: conta logada volta sozinha para a última sala, no
+    // mesmo modo. O servidor decide a sala (o navegador não escolhe nada).
+    socket.on('retomar_sala', async () => {
+        if (sala.salaDe(socket.id)) return;
+        const jid = socket.request?.session?.jogadorId;
+        try {
+            const info = jid ? await persistencia.salaParaRetomar(jid) : null;
+            const ident = info && identidade(socket, { avatar_codigo: info.avatar_codigo });
+            if (!info || !ident || !(await avatarOk(ident.avatar_codigo))) return socket.emit('retomar_falhou');
+            ingressar(socket, info.codigo, ident, {
+                criando: false, souCriador: info.souCriador, estado: sala.metaDe(info.codigo)?.estado ?? info.estado, modo: info.modo,
+            });
+        } catch (err) {
+            console.warn('[io] retomar_sala:', err.message);
+            socket.emit('retomar_falhou');
+        }
+    });
+
+    // Sair de propósito: apaga o ponteiro, para não ser levado de volta a esta sala.
+    socket.on('sair_da_sala', async (_dados, ack) => {
+        const jid = sala.buscar(socket.id)?.jogadorId;
+        try { await persistencia.limparSalaAtual(jid); } catch (err) { console.warn('[io] sair_da_sala:', err.message); }
+        if (typeof ack === 'function') ack({ ok: true });
+    });
+
     socket.on('entrar_sala', async (dados) => {
         const ident = identidade(socket, dados);
         if (!ident || !(await avatarOk(ident.avatar_codigo))) return;
@@ -493,6 +534,22 @@ io.on('connection', (socket) => {
         catch (err) { console.warn('[jogo] config_jogo:', err.message); ack({}); }
     });
 
+    // Snapshot do jogo em andamento (peças montadas, desafio aberto...). Opaco
+    // para o servidor; volta no `config_jogo` quando a porta é reaberta.
+    socket.on('salvar_estado', (dados) => {
+        const c = ctxJogo();
+        if (!c || c.eu.anonimo) return;
+        // guarda só o ÚLTIMO snapshot e grava logo depois (não perde o final, não martela o banco)
+        socket.data.estadoPend = { sessaoId: c.sessaoId, jogadorId: c.eu.jogadorId, ordem: dados?.ordem, estado: dados?.estado };
+        if (socket.data.estadoTimer) return;
+        socket.data.estadoTimer = setTimeout(async () => {
+            const p = socket.data.estadoPend;
+            socket.data.estadoPend = null; socket.data.estadoTimer = null;
+            try { await jogo.salvarEstadoJogo(p.sessaoId, p.jogadorId, p.ordem, p.estado); }
+            catch (err) { console.warn('[jogo] salvar_estado:', err.message); }
+        }, 300);
+    });
+
     // Modo livre: o jogo aberto (ex.: TIM) concluiu um nível interno -> marca no banco.
     socket.on('nivel_concluido', async (dados, ack) => {
         const responde = typeof ack === 'function' ? ack : () => {};
@@ -577,6 +634,7 @@ io.on('connection', (socket) => {
             if (!st || st.erro) return;
             limparPedido(c.codigo, c.sessaoId, c.eu.jogadorId, socket.id);   // pedido era da porta anterior
             noHall.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
+            jogo.marcarLocal(c.sessaoId, c.eu.jogadorId, true).catch(() => {});
             socket.emit('meu_enigma', st);
             transmitirNiveis(c.codigo, c.sessaoId);
         } catch (err) { console.warn('[jogo] escolher_porta:', err.message); }
@@ -594,12 +652,14 @@ io.on('connection', (socket) => {
                     socket.emit('jogo_terminado', { porta: depois.total, energia: depois.energia });
                 } else {
                     noHall.add(chavePedido(c.sessaoId, c.eu.jogadorId));
+                    jogo.marcarLocal(c.sessaoId, c.eu.jogadorId, false).catch(() => {});
                     socket.emit('hall', { porta: depois.porta, total: depois.total });
                 }
                 transmitirNiveis(c.codigo, c.sessaoId);
                 return;
             }
             noHall.delete(chavePedido(c.sessaoId, c.eu.jogadorId));
+            jogo.marcarLocal(c.sessaoId, c.eu.jogadorId, true).catch(() => {});
             socket.emit('meu_enigma', st);
             transmitirNiveis(c.codigo, c.sessaoId);
         } catch (err) { console.warn('[jogo] prosseguir:', err.message); }
@@ -762,7 +822,8 @@ io.on('connection', (socket) => {
             } else {
                 // grava a energia pessoal de volta antes de carimbar a saída
                 if (meta?.sessaoId && m.jogadorId && meta.estado === 'em_jogo') {
-                    jogo.finalizarPartida(meta.sessaoId, m.jogadorId)
+                    jogo.tique(meta.sessaoId, m.jogadorId)   // fixa a energia: fora da sala ela não decai
+                        .then(() => jogo.finalizarPartida(meta.sessaoId, m.jogadorId))
                         .then(() => checarEEncerrar(saiu.codigo, meta.sessaoId))
                         .catch(err => console.warn('[jogo] energia pessoal não gravada:', err.message));
                 }

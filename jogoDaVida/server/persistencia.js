@@ -43,6 +43,60 @@ export async function salasRecentes(limite = 10) {
     return r.rows;
 }
 
+// ── Retomar de onde parou ───────────────────────────────────────────
+// Quanto tempo depois da última presença ainda vale retomar a sala.
+const RETOMAR_DIAS = 7;
+
+// A sala onde o jogador (conta logada) estava, se ainda dá para voltar:
+// ponteiro `jogador.sessao_atual_id` + sala não encerrada (game over) + presença
+// recente. Se a sala foi fechada só porque o servidor parou (dt_encerramento
+// preenchido, estado ainda vivo), reabre. Devolve null se não há o que retomar.
+export async function salaParaRetomar(jogadorId) {
+    if (!jogadorId) return null;
+    const r = await pool.query(
+        `SELECT s.id, s.codigo, s.estado, s.modo_jogo, s.criador_id, s.dt_encerramento, j.avatar_codigo
+           FROM jogador j
+           JOIN sessao s ON s.id = j.sessao_atual_id
+          WHERE j.id = $1 AND j.anonimo = 'N' AND s.estado <> 'encerrada'
+            AND EXISTS (SELECT 1 FROM presenca p
+                         WHERE p.sessao_id = s.id AND p.jogador_id = j.id
+                           AND COALESCE(p.dt_saida, p.dt_entrada) > now() - make_interval(days => $2))`,
+        [jogadorId, RETOMAR_DIAS],
+    );
+    const s = r.rows[0];
+    if (!s) return null;
+    if (s.dt_encerramento) {
+        await pool.query(
+            `UPDATE sessao SET dt_encerramento = NULL, servidor_host = $2 WHERE id = $1 AND estado <> 'encerrada'`,
+            [s.id, HOST],
+        );
+    }
+    return {
+        sessaoId: s.id, codigo: s.codigo, estado: s.estado, modo: s.modo_jogo,
+        souCriador: s.criador_id === jogadorId, avatar_codigo: s.avatar_codigo,
+    };
+}
+
+// Só para o /eu: a sala + o modo, sem reabrir nada (a reabertura acontece ao entrar).
+export async function resumoRetomada(jogadorId) {
+    const r = await pool.query(
+        `SELECT s.codigo, s.modo_jogo AS modo, j.avatar_codigo
+           FROM jogador j JOIN sessao s ON s.id = j.sessao_atual_id
+          WHERE j.id = $1 AND j.anonimo = 'N' AND s.estado <> 'encerrada'
+            AND EXISTS (SELECT 1 FROM presenca p
+                         WHERE p.sessao_id = s.id AND p.jogador_id = j.id
+                           AND COALESCE(p.dt_saida, p.dt_entrada) > now() - make_interval(days => $2))`,
+        [jogadorId, RETOMAR_DIAS],
+    );
+    return r.rows[0] || null;
+}
+
+// Saiu da sala de propósito: não retoma mais nela.
+export async function limparSalaAtual(jogadorId) {
+    if (!jogadorId) return;
+    await pool.query(`UPDATE jogador SET sessao_atual_id = NULL WHERE id = $1`, [jogadorId]);
+}
+
 // Marca a sessão como encerrada (game over da sala).
 export async function encerrarSessao(sessaoId) {
     await pool.query(
@@ -175,6 +229,10 @@ export async function registrarEntradaEmSala({ identificador, apelido, avatar_co
             `INSERT INTO presenca (sessao_id, jogador_id) VALUES ($1, $2) RETURNING id`,
             [sessaoId, jogadorId],
         );
+        // conta logada: lembra a sala para retomar no próximo acesso
+        if (jog.rows[0].anonimo === 'N') {
+            await client.query(`UPDATE jogador SET sessao_atual_id = $2 WHERE id = $1`, [jogadorId, sessaoId]);
+        }
 
         await client.query('COMMIT');
         return {

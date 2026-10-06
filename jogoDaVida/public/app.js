@@ -12,6 +12,7 @@ const estado = {
     apelido: null,
     codigo: null,
     souCriador: false,
+    retomar: null,            // { codigo, modo, avatar_codigo } da última sala (conta logada)
     modo: 'desafios',         // 'desafios' (sequência) | 'livre' (lista de portas) — vem do servidor
     persistido: false,        // a minha entrada já foi gravada no banco?
     jogoIniciado: false,
@@ -65,6 +66,11 @@ window.addEventListener('message', e => {
     // o servidor devolve a solução montada dessa fase
     if (d.tipo === 'nivel_atual' && e.source) {
         nivelDoJogo = { win: e.source, nivel: d.nivel };
+        return;
+    }
+    // jogo em andamento: snapshot do que o jogador está fazendo (o servidor guarda; só conta logada)
+    if (d.tipo === 'salvar_estado' && socket) {
+        socket.emit('salvar_estado', { ordem: ordemDoJogoAberto(), estado: d.estado });
         return;
     }
     if (d.tipo === 'tentativa' && socket) {
@@ -175,6 +181,7 @@ $(async function () {
     if (errOAuth === 'google_desligado') mostrar('#aviso-oauth', 'Login com Google não está configurado.');
 
     await Promise.all([carregarEu(), carregarCatalogo()]);
+    tentarRetomar();
 
     // modo (não logado)
     $('#btn-modo-anon').on('click', () => { trocarSecao('#bloco-figura'); $('#campo-nome').trigger('focus'); });
@@ -202,8 +209,33 @@ $(async function () {
     $('#btn-iniciar').on('click', () => socket && socket.emit('iniciar_jogo'));
     // volta pro início pra criar/entrar numa sala nova — a sala concluída não
     // se reinicia sozinha (outros podem ainda estar jogando nela).
-    $('#btn-jogar-de-novo').on('click', () => { location.href = '/'; });
+    $('#btn-jogar-de-novo').on('click', sairDaSala);
+    $('#btn-sair-sala').on('click', () => {
+        if (window.confirm('Sair da sala e voltar à tela inicial?')) sairDaSala();
+    });
 });
+
+// Conta logada com uma sala em andamento: entra direto nela (mesmo modo, mesmo
+// ponto). Quem decide a sala é o servidor; aqui só se pede.
+function tentarRetomar() {
+    const r = estado.retomar;
+    if (!estado.logado || !r || (estado.salaAlvo && estado.salaAlvo !== r.codigo)) return;
+    if (!r.avatar_codigo) return;   // conta sem figura ainda: fluxo normal
+    estado.jogador = { nome: estado.apelido, avatar_codigo: r.avatar_codigo };
+    estado.avatarSelecionado = r.avatar_codigo;
+    $('#bloco-figura').addClass('d-none');
+    $('#aviso-retomando').removeClass('d-none');
+    conectar();
+    socket.emit('retomar_sala');
+}
+
+// Sair de propósito: avisa o servidor para não retomar mais nesta sala.
+function sairDaSala() {
+    let foi = false;
+    const ir = () => { if (!foi) { foi = true; location.href = '/'; } };
+    if (socket && socket.connected) { socket.emit('sair_da_sala', {}, ir); setTimeout(ir, 1500); }
+    else ir();
+}
 
 async function carregarEu() {
     let eu = { logado: false, googleAtivo: false };
@@ -218,6 +250,7 @@ async function carregarEu() {
 
     if (eu.logado) {
         estado.logado = true;
+        estado.retomar = eu.retomar || null;
         estado.apelido = eu.apelido;
         $('#saud-nome').text(eu.apelido);
         $('#painel-nao-logado, #form-login, #form-cadastro').addClass('d-none');
@@ -360,7 +393,14 @@ function conectar() {
     });
     socket.on('disconnect', () => $('#status-conexao').text('desconectado'));
 
+    // não deu para retomar (sala encerrada/expirada): segue o fluxo normal de entrada
+    socket.on('retomar_falhou', () => {
+        $('#aviso-retomando').addClass('d-none');
+        $('#bloco-figura').removeClass('d-none');
+    });
+
     socket.on('erro_sala', ({ motivo }) => {
+        $('#aviso-retomando').addClass('d-none');
         trocarTela('#tela-sala-escolha');
         mostrar('#erro-sala', motivo || 'Não foi possível entrar.');
     });
@@ -382,8 +422,9 @@ function conectar() {
         $('#campo-msg').trigger('focus');
     });
 
-    socket.on('presenca_confirmada', ({ modo }) => {
+    socket.on('presenca_confirmada', ({ modo, souCriador }) => {
         definirModo(modo);
+        if (souCriador != null) estado.souCriador = !!souCriador;
         estado.persistido = true;
         atualizarInicio();
     });
@@ -651,7 +692,7 @@ function conectar() {
     $('#jogo-pedir-doacao, #hall-pedir-doacao').on('click', () => socket.emit('pedir_doacao'));
     $('#jogo-desistir').on('click', () => socket.emit('desistir', { nivel: nivelNoIframe('#jogo-iframe') }));
     $('#jogo-sair, #hall-sair, #mundo-sair-sala').on('click', () => {
-        if (window.confirm('Sair da sala e voltar à tela inicial?')) location.href = '/';
+        if (window.confirm('Sair da sala e voltar à tela inicial?')) sairDaSala();
     });
     $('#jogo-tela-cheia').on('click', () => pedirTelaCheia('jogo-iframe'));
     $('#jogo-fase-tela-cheia').on('click', () => pedirTelaCheia('jogo-fase-iframe'));

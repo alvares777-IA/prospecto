@@ -761,3 +761,23 @@ CREATE TABLE IF NOT EXISTS jogo_nivel (
   dt          TIMESTAMPTZ  NOT NULL DEFAULT now(),
   CONSTRAINT pk_jogo_nivel PRIMARY KEY (sessao_id, jogador_id, enigma_id, nivel)
 );
+
+-- ── Retomar de onde parou (só conta logada; anônimo perde tudo ao sair) ──
+-- Ponteiro "sala atual": ao entrar de novo, o jogador volta direto para ela.
+-- Só é limpo quando ele sai da sala de propósito (ou a sala encerra).
+ALTER TABLE jogador ADD COLUMN IF NOT EXISTS sessao_atual_id BIGINT REFERENCES sessao(id) ON DELETE SET NULL;
+
+-- Onde o jogador estava dentro da sala: TRUE = dentro de uma porta/enigma,
+-- FALSE = no hall (ou na lista do modo livre).
+ALTER TABLE partida_jogador ADD COLUMN IF NOT EXISTS no_enigma BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Estado de um jogo EM ANDAMENTO (peças montadas, desafio aberto...). O jogo
+-- manda um snapshot opaco enquanto joga; o servidor só guarda e devolve.
+CREATE TABLE IF NOT EXISTS jogo_estado (
+  sessao_id   BIGINT       NOT NULL REFERENCES sessao(id)  ON DELETE CASCADE,
+  jogador_id  BIGINT       NOT NULL REFERENCES jogador(id) ON DELETE CASCADE,
+  enigma_id   BIGINT       NOT NULL REFERENCES enigma(id)  ON DELETE CASCADE,
+  estado      JSONB        NOT NULL,
+  dt          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  CONSTRAINT pk_jogo_estado PRIMARY KEY (sessao_id, jogador_id, enigma_id)
+);

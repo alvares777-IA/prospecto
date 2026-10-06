@@ -142,7 +142,7 @@ export async function garantirPartida(sessaoId, jogadorId) {
 }
 
 const SQL_ESTADO = `
-    SELECT pj.id, pj.porta, pj.dt_energia, pj.dt_fim,
+    SELECT pj.id, pj.porta, pj.dt_energia, pj.dt_fim, pj.no_enigma,
            energia_atual(pj.id) AS energia,
            (SELECT count(*)::int FROM sessao_enigma WHERE sessao_id = pj.sessao_id) AS total,
            se.fase,
@@ -217,6 +217,7 @@ export async function estado(sessaoId, jogadorId) {
         terminou,
         esgotado: Number(p.energia) <= 0 && !terminou,
         modo: p.modo_jogo,
+        noEnigma: !!p.no_enigma,
     };
     if (terminou) return { ...base, tipo: null, pergunta: null, nivel: null, arquivo: null };
 
@@ -279,6 +280,24 @@ async function settle(sessaoId, jogadorId, delta) {
             [r.rows[0].id]);
     }
     return Number(r.rows[0].energia);
+}
+
+// Onde o jogador está na sala: dentro de uma porta (true) ou no hall/lista (false).
+// Guardado para, ao voltar, ele cair no mesmo lugar.
+export async function marcarLocal(sessaoId, jogadorId, noEnigma) {
+    await pool.query(
+        `UPDATE partida_jogador SET no_enigma = $3 WHERE sessao_id = $1 AND jogador_id = $2 AND no_enigma <> $3`,
+        [sessaoId, jogadorId, !!noEnigma]);
+}
+
+// Voltou para a sala: o tempo que ficou fora não gasta energia (o decaimento
+// só corre com o jogador presente). O que ficou gravado em `energia` foi
+// fixado na saída (tique em disconnect), então só reinicia o relógio.
+export async function retomarEnergia(sessaoId, jogadorId) {
+    await pool.query(
+        `UPDATE partida_jogador SET dt_energia = now()
+          WHERE sessao_id = $1 AND jogador_id = $2 AND dt_fim IS NULL`,
+        [sessaoId, jogadorId]);
 }
 
 // Só aplica o decaimento (usado pelo relógio). Devolve energia atual ou null.
@@ -787,7 +806,35 @@ export async function configJogo(sessaoId, jogadorId, ordem) {
     // modo livre: o jogo deixa escolher o nível e mostra os já concluídos nesta sala
     cfg.livre = st.modo === 'livre';
     cfg.concluidos = cfg.livre && en ? await niveisConcluidos(sessaoId, jogadorId, en.id) : [];
+    cfg.salvo = en ? await estadoSalvo(sessaoId, jogadorId, en.id) : null;   // jogo em andamento
     return cfg;
+}
+
+// ── Estado do jogo em andamento ─────────────────────────────────────
+// O jogo (iframe) manda snapshots opacos do que o jogador está fazendo; aqui só
+// se guarda e se devolve. Conta logada apenas (anônimo perde tudo ao sair).
+const LIMITE_ESTADO = 200_000;   // bytes de JSON por jogo
+
+async function estadoSalvo(sessaoId, jogadorId, enigmaId) {
+    const r = await pool.query(
+        `SELECT estado FROM jogo_estado WHERE sessao_id = $1 AND jogador_id = $2 AND enigma_id = $3`,
+        [sessaoId, jogadorId, enigmaId]);
+    return r.rows[0]?.estado ?? null;
+}
+
+export async function salvarEstadoJogo(sessaoId, jogadorId, ordem, estadoJogo) {
+    const st = await estado(sessaoId, jogadorId);
+    if (!st || st.terminou) return { erro: 'indisponivel' };
+    const en = await enigmaDoJogo(sessaoId, st, ordem);
+    if (!en) return { erro: 'nao_e_jogo' };
+    const json = JSON.stringify(estadoJogo ?? null);
+    if (json === 'null' || json.length > LIMITE_ESTADO) return { erro: 'estado_invalido' };
+    const r = await pool.query(
+        `INSERT INTO jogo_estado (sessao_id, jogador_id, enigma_id, estado)
+         SELECT $1, $2, $3, $4::jsonb WHERE EXISTS (SELECT 1 FROM jogador WHERE id = $2 AND anonimo = 'N')
+         ON CONFLICT (sessao_id, jogador_id, enigma_id) DO UPDATE SET estado = EXCLUDED.estado, dt = now()`,
+        [sessaoId, jogadorId, en.id, json]);
+    return { ok: r.rowCount > 0 };
 }
 
 async function niveisConcluidos(sessaoId, jogadorId, enigmaId) {
