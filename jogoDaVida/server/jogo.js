@@ -12,6 +12,21 @@
 // segue sozinho. Energia continua PESSOAL o tempo todo.
 
 import { pool } from './db.js';
+import { readFileSync, existsSync } from 'node:fs';
+
+// Jogos com fases internas (ex.: TIM) podem ter a solução de cada fase em
+// server/solucoes/<arquivo-sem-.html>.json ({ "1": [peças...], ... }). Fica no
+// servidor: o jogador só recebe a da fase em que está, e só quando desiste.
+const solucoes = new Map();
+function solucaoDoJogo(arquivo, nivel) {
+    if (!arquivo || !Number.isInteger(nivel)) return null;
+    const base = arquivo.replace(/\.html$/, '').replace(/[^\w-]/g, '');
+    if (!solucoes.has(base)) {
+        const f = new URL('./solucoes/' + base + '.json', import.meta.url);
+        solucoes.set(base, existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null);
+    }
+    return solucoes.get(base)?.[nivel] || null;
+}
 
 // Monta a sequência da sala, se ainda não existe. Intercala enigmas solo
 // (por `ordem`) com grupos-fase (posição = menor `ordem` do grupo); um
@@ -552,8 +567,9 @@ export async function prosseguirFase(sessaoId, jogadorId) {
 // pessoal. O jogador ainda precisa digitar e enviar. Marca de caráter
 // NEGATIVA (silenciosa) só se havia outro jogador à frente (já passou da
 // fase) — "preferiu o jogo a pedir a um parceiro".
-// Devolve { resposta, energia, custo, ordem } ou { erro }.
-export async function desistirEnigma(sessaoId, jogadorId, ordemAlvo = null) {
+// Em jogo com fases internas, `nivel` é a fase aberta no jogo: vem também a solução dela.
+// Devolve { resposta, energia, custo, ordem, solucao? } ou { erro }.
+export async function desistirEnigma(sessaoId, jogadorId, ordemAlvo = null, nivel = null) {
     const st = await estado(sessaoId, jogadorId);
     if (!st) return { erro: 'sem_partida' };
     if (st.terminou) return { erro: 'ja_terminou' };
@@ -590,8 +606,9 @@ export async function desistirEnigma(sessaoId, jogadorId, ordemAlvo = null) {
         [sessaoId, jogadorId, st.porta],
     )).rows[0].x;
 
-    const resposta = (await pool.query(
-        `SELECT resposta FROM enigma WHERE id = $1`, [enigmaId])).rows[0].resposta;
+    const { resposta, arquivo } = (await pool.query(
+        `SELECT resposta, arquivo FROM enigma WHERE id = $1`, [enigmaId])).rows[0];
+    const solucao = solucaoDoJogo(arquivo, Number(nivel));
 
     await pool.query(
         `INSERT INTO desistencia (sessao_id, jogador_id, enigma_id, ordem, custo, orgulho, porta)
@@ -602,7 +619,7 @@ export async function desistirEnigma(sessaoId, jogadorId, ordemAlvo = null) {
         await marcarCarater(sessaoId, jogadorId, 'negativo',
             'preferiu a resposta do jogo a pedir a um parceiro', st.porta);
     }
-    return { resposta, energia, custo, ordem };
+    return { resposta, energia, custo, ordem, solucao, nivel: solucao ? Number(nivel) : null };
 }
 
 // Pedir ajuda: custo do próprio pedinte. Devolve { energia, porta }.

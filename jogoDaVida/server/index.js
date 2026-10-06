@@ -533,11 +533,13 @@ io.on('connection', (socket) => {
         if (!c) return;
         const ordem = Number.isInteger(Number(dados?.ordem)) ? Number(dados.ordem) : null;
         try {
-            const r = await jogo.desistirEnigma(c.sessaoId, c.eu.jogadorId, ordem);
+            // nivel: fase interna aberta no jogo (TIM) — vem a solução montada dela
+            const nivel = Number.isInteger(Number(dados?.nivel)) ? Number(dados.nivel) : null;
+            const r = await jogo.desistirEnigma(c.sessaoId, c.eu.jogadorId, ordem, nivel);
             if (r.erro) return socket.emit('desistir_negado', { motivo: r.erro });
             socket.emit('energia', { energia: r.energia });
             // ordem = null quando é porta solo; número quando é enigma de fase
-            socket.emit('resposta_revelada', { ordem, resposta: r.resposta, custo: r.custo });
+            socket.emit('resposta_revelada', { ordem, resposta: r.resposta, custo: r.custo, solucao: r.solucao, nivel: r.nivel });
             io.to(c.codigo).emit('desistiu', { jogador: c.eu.nome });   // feed, sem a resposta
         } catch (err) { console.warn('[jogo] desistir:', err.message); }
     });

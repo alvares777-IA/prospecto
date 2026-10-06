@@ -253,6 +253,34 @@
     renderCaixa(); atualizarBotoes(); atualizarHud();
     avisar('Escolha uma peça na caixa e clique no cenário para colocá-la.', 'info');
     ajustarTamanho();
+    if (embutido) window.parent.postMessage({ tipo: 'nivel_atual', nivel }, location.origin);
+  }
+
+  // Jogador desistiu (pagou no jogoDaVida): o servidor manda a montagem que resolve o
+  // desafio, e ela é posta no cenário. Os ids da solução ganham ids novos para não
+  // colidir com os que a interface gera; ligações (correia, fio, corda) seguem o mapa.
+  function montarSolucao(sol) {
+    if (rodando) parar();
+    carregarDesafio();
+    const novoId = {};
+    for (const q of sol) if (q.id) novoId[q.id] = (q.tipo === 'corda' ? 'k' : q.tipo === 'fio' ? 'f' : q.tipo === 'correia' ? 'c' : 'p') + proxId++;
+    const mapa = id => novoId[id] || id;
+    pecas = sol.map(q => {
+      const base = ehLigacao(q) ? {} : (novaPeca(q.tipo, q.x, q.y) || {});
+      const p = { ...base, ...q };
+      if (p.id) p.id = mapa(p.id);
+      if (p.de) p.de = mapa(p.de);
+      if (p.para) p.para = mapa(p.para);
+      if (p.polias) p.polias = p.polias.map(mapa);
+      return p;
+    });
+    for (const p of pecas) {
+      if (caixa[p.tipo] > 0) caixa[p.tipo]--;
+      if (p.ligado && caixa.bateria > 0) caixa.bateria--;   // bateria vai em cima do ventilador/lanterna
+    }
+    selecionada = null; modo = null;
+    renderCaixa(); atualizarBotoes();
+    avisar('🗝️ Solução montada pelo jogo. Aperte ▶ Iniciar para ver a máquina funcionar.', 'ok');
   }
 
   // Ícones da caixa: cada peça é desenhada com as mesmas funções do cenário numa tela
@@ -722,6 +750,10 @@
         if (!pecas.length && !rodando && !pecasDaVitoria) { nivel = proximoPendente(niveis) || 1; carregarDesafio(); }
       }
       atualizarHud(); atualizarBotoes(); ajustarTamanho();
+      return;
+    }
+    if (d.tipo === 'solucao') {
+      if (Number(d.nivel) === nivel && Array.isArray(d.pecas)) montarSolucao(d.pecas);
       return;
     }
     if (d.tipo === 'niveis_concluidos') {   // confirmação do servidor (fonte da verdade das marcas)

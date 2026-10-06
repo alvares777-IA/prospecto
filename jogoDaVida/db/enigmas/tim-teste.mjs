@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 // Verifica os desafios do TIM por simulação (não é publicado em public/).
 // Só usa posições que a interface permite (grade de 10 px), senão uma
 // "solução" verificada poderia ser impossível de montar no jogo.
@@ -649,6 +650,24 @@ fase(91, [   // Solte os fogos
     { tipo: 'correia', id: 'c1', de: 'mo', para: 'gr' },
     { tipo: 'lupa', x: 330, y: 150 },
 ]);
+
+// Soluções que o servidor entrega quando o jogador desiste (server/solucoes/enigma-105.json):
+// toda fase tem uma, ela resolve, está na grade, não encavala e cabe na caixa.
+{
+    console.log('Soluções do "Desistir"');
+    const SOL = JSON.parse(readFileSync(new URL('../../server/solucoes/enigma-105.json', import.meta.url), 'utf8'));
+    const ruins = [];
+    NIVEIS.forEach((n, i) => {
+        const p = SOL[i + 1];
+        if (!p) return ruins.push(`${i + 1} (sem solução)`);
+        const conta = {};
+        for (const q of p) { conta[q.tipo] = (conta[q.tipo] || 0) + 1; if (q.ligado) conta.bateria = (conta.bateria || 0) + 1; }
+        const cabe = Object.entries(conta).every(([t, k]) => (n.caixa[t] || 0) >= k);
+        const grade = p.every(q => q.x == null || (q.x % 10 === 0 && q.y % 10 === 0));
+        if (!cabe || !grade || p.some(q => F.sobrepoe(q, n, p)) || !ok(n, p)) ruins.push(String(i + 1));
+    });
+    relato(ruins.length === 0, 'cada fase tem uma solução que resolve' + (ruins.length ? ` — falharam: ${ruins.join(', ')}` : ''));
+}
 
 // Painel de ambiente: o padrão (gravidade 1, ar 1) é exatamente a física sem ambiente
 {

@@ -61,6 +61,12 @@ window.addEventListener('message', e => {
         });
         return;
     }
+    // jogo com fases internas (TIM) avisa qual fase está aberta: ao desistir,
+    // o servidor devolve a solução montada dessa fase
+    if (d.tipo === 'nivel_atual' && e.source) {
+        nivelDoJogo = { win: e.source, nivel: d.nivel };
+        return;
+    }
     if (d.tipo === 'tentativa' && socket) {
         estado.jogo._htmlPendente = true;
         if (estado.jogo.fase.ativa && estado.jogo.fase.ordemAberta != null) {
@@ -70,6 +76,13 @@ window.addEventListener('message', e => {
         }
     }
 });
+
+// Fase interna do jogo aberto no iframe (só vale se veio daquele iframe).
+let nivelDoJogo = null;
+function nivelNoIframe(sel) {
+    const w = document.querySelector(sel)?.contentWindow;
+    return nivelDoJogo && w && nivelDoJogo.win === w ? nivelDoJogo.nivel : null;
+}
 
 // Numa fase, o servidor precisa saber QUAL jogo do trecho está aberto.
 function ordemDoJogoAberto() {
@@ -636,7 +649,7 @@ function conectar() {
     });
     $('#jogo-pedir').on('click', () => socket.emit('pedir_ajuda'));
     $('#jogo-pedir-doacao, #hall-pedir-doacao').on('click', () => socket.emit('pedir_doacao'));
-    $('#jogo-desistir').on('click', () => socket.emit('desistir', {}));
+    $('#jogo-desistir').on('click', () => socket.emit('desistir', { nivel: nivelNoIframe('#jogo-iframe') }));
     $('#jogo-sair, #hall-sair, #mundo-sair-sala').on('click', () => {
         if (window.confirm('Sair da sala e voltar à tela inicial?')) location.href = '/';
     });
@@ -650,7 +663,7 @@ function conectar() {
         if (r) socket.emit('responder', { ordem: estado.jogo.fase.ordemAberta, resposta: r });
     });
     $('#jogo-fase-voltar').on('click', voltarAoTabuleiro);
-    $('#jogo-fase-desistir').on('click', () => socket.emit('desistir', { ordem: estado.jogo.fase.ordemAberta }));
+    $('#jogo-fase-desistir').on('click', () => socket.emit('desistir', { ordem: estado.jogo.fase.ordemAberta, nivel: nivelNoIframe('#jogo-fase-iframe') }));
     $('#jogo-fase-prosseguir').on('click', () => socket.emit('prosseguir'));
     $(document).on('click', '.btn-voltar-hall', () => socket.emit('voltar_hall'));
 
@@ -679,7 +692,16 @@ function conectar() {
         renderFase();
     });
 
-    socket.on('resposta_revelada', ({ resposta, custo }) => {
+    socket.on('resposta_revelada', ({ resposta, custo, solucao, nivel }) => {
+        // jogo com fases internas: a "resposta" é a montagem da fase, que o jogo faz na tela
+        if (solucao) {
+            const sel = estado.jogo.fase.ativa ? '#jogo-fase-iframe' : '#jogo-iframe';
+            try { document.querySelector(sel)?.contentWindow?.postMessage({ tipo: 'solucao', nivel, pecas: solucao }, location.origin); } catch (err) { /* iframe já saiu */ }
+            const msg = `🗝️ O jogo montou a solução do desafio ${nivel} (-${Math.round(custo)}%) — aperte Iniciar para ver funcionar.`;
+            if (estado.jogo.fase.ativa) $('#jogo-fase-aviso').removeClass('text-danger').addClass('text-success').text(msg);
+            else $('#resposta-recebida').empty().removeClass('d-none').text(msg);
+            return;
+        }
         const txt = `O jogo revelou a resposta (-${Math.round(custo)}%): `;
         if (estado.jogo.fase.ativa) {
             $('#jogo-fase-aviso').removeClass('text-danger').addClass('text-success')
