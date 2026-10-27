@@ -88,7 +88,9 @@
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ number: $('Buscar Lead').first().json.telefone, text: $('Montar Mensagem').first().json.texto }) }}",
-        "options": {}
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
       },
       "continueOnFail": true,
       "id": "a1111111-0000-0000-0000-000000000004",
@@ -158,10 +160,31 @@
       "name": "Marcar Descartado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1780, 340],
+      "position": [2000, 340],
       "credentials": {
         "postgres": { "id": "1", "name": "Postgres Leads" }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.response?.message?.[0]?.exists === false }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1111111-0000-0000-0000-000000000011",
+      "name": "Número inexistente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1780, 340]
     }
   ],
   "connections": {
@@ -188,8 +211,14 @@
     },
     "Número existe?": {
       "main": [
-        [{ "node": "Salvar JID",        "type": "main", "index": 0 }],
-        [{ "node": "Marcar Descartado", "type": "main", "index": 0 }]
+        [{ "node": "Salvar JID",           "type": "main", "index": 0 }],
+        [{ "node": "Número inexistente?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Número inexistente?": {
+      "main": [
+        [{ "node": "Marcar Descartado", "type": "main", "index": 0 }],
+        []
       ]
     },
     "Salvar JID": {
