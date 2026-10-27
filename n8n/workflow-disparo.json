@@ -86,13 +86,8 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "specifyBody": "keypairs",
-        "bodyParameters": {
-          "parameters": [
-            { "name": "number", "value": "={{ $('Buscar Lead').first().json.telefone }}" },
-            { "name": "text",   "value": "={{ $('Montar Mensagem').first().json.texto }}" }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Buscar Lead').first().json.telefone, text: $('Montar Mensagem').first().json.texto }) }}",
         "options": {}
       },
       "continueOnFail": true,
